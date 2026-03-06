@@ -6,6 +6,15 @@ __pycache__/
 # C extensions
 *.so
 
+# 忽略虚拟环境
+backend/v1/file_analysis/venv_RAG/
+
+# 忽略指定的模型文件夹/向量数据库/minerU临时文件/临时存储文件
+backend/v1/file_analysis/models/models--opendatalab--PDF-Extract-Kit-1.0/
+backend/v1/file_analysis/chroma_db/
+backend/v1/file_analysis/temp/
+backend/v1/file_analysis/uploads/
+
 # Distribution / packaging
 .Python
 build/

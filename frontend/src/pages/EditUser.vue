@@ -1,0 +1,275 @@
+<template>
+  <div class="edit-user-page">
+    <div class="page-header">
+      <button class="back-btn" @click="$router.back()">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z"/>
+        </svg>
+        返回
+      </button>
+      <h1 class="page-title">编辑用户</h1>
+    </div>
+
+    <div class="form-card">
+      <form @submit.prevent="handleSubmit">
+        <div class="form-group">
+          <label>用户名 *</label>
+          <input 
+            type="text" 
+            v-model="form.username" 
+            placeholder="请输入用户名" 
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label>新密码</label>
+          <input 
+            type="password" 
+            v-model="form.password" 
+            placeholder="请输入新密码"
+          />
+        </div>
+
+        <div class="form-group">
+          <label>邮箱</label>
+          <input 
+            type="email" 
+            v-model="form.email" 
+            placeholder="请输入邮箱"
+          />
+        </div>
+
+        <div class="form-group">
+          <label>真实姓名</label>
+          <input 
+            type="text" 
+            v-model="form.real_name" 
+            placeholder="请输入真实姓名"
+          />
+        </div>
+
+        <div class="form-group">
+          <label>手机号</label>
+          <input 
+            type="text" 
+            v-model="form.phone" 
+            placeholder="请输入手机号"
+          />
+        </div>
+
+        <div class="form-group">
+          <label>部门</label>
+          <input 
+            type="text" 
+            v-model="form.department" 
+            placeholder="请输入部门"
+          />
+        </div>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" @click="$router.back()">取消</button>
+          <button type="submit" class="btn btn-primary" :disabled="submitting">
+            {{ submitting ? '保存中...' : '保存修改' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, reactive, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { adminApi } from '@/api'
+
+const route = useRoute()
+const router = useRouter()
+const submitting = ref(false)
+const loading = ref(false)
+
+const form = reactive({
+  username: '',
+  password: '',
+  email: '',
+  real_name: '',
+  phone: '',
+  department: ''
+})
+
+const fetchUserDetail = async () => {
+  const userId = route.params.id
+  console.log('编辑用户，ID:', userId)
+  
+  if (!userId) {
+    alert('无效的用户ID')
+    router.push('/users')
+    return
+  }
+  
+  loading.value = true
+  try {
+    console.log('调用API: /admin/users/' + userId)
+    const res = await adminApi.getUserDetail(userId)
+    console.log('API返回:', res)
+    if (res.data) {
+      form.username = res.data.username || ''
+      form.email = res.data.email || ''
+      form.real_name = res.data.real_name || ''
+      form.phone = res.data.phone || ''
+      form.department = res.data.department || ''
+    }
+  } catch (error) {
+    console.error('获取用户详情失败:', error)
+    console.error('错误详情:', error.response?.data)
+    alert('获取用户详情失败: ' + (error.response?.data?.message || error.message || '网络错误，请检查后端服务'))
+    router.push('/users')
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleSubmit = async () => {
+  const userId = route.params.id
+  submitting.value = true
+  try {
+    const updateData = {
+      username: form.username || undefined,
+      email: form.email || undefined,
+      real_name: form.real_name || undefined,
+      phone: form.phone || undefined,
+      department: form.department || undefined
+    }
+
+    if (form.password) {
+      await adminApi.resetUserPassword(userId, form.password)
+    }
+
+    await adminApi.updateUser(userId, updateData)
+    alert('用户信息更新成功')
+    router.push('/users?refresh=' + Date.now())
+  } catch (error) {
+    console.error('更新用户失败:', error)
+    alert('更新用户失败: ' + (error.message || '未知错误'))
+  } finally {
+    submitting.value = false
+  }
+}
+
+onMounted(() => {
+  fetchUserDetail()
+})
+</script>
+
+<style scoped>
+.edit-user-page {
+  padding: 32px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.page-header {
+  margin-bottom: 32px;
+}
+
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.back-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.page-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--gray-800);
+}
+
+.form-card {
+  background: white;
+  border-radius: var(--radius-xl);
+  padding: 32px;
+  box-shadow: var(--shadow);
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gray-700);
+  margin-bottom: 8px;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid var(--gray-200);
+  border-radius: var(--radius);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.form-group input:focus {
+  border-color: var(--primary);
+}
+
+.form-group input:disabled {
+  background: var(--gray-100);
+  color: var(--gray-500);
+}
+
+.form-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 32px;
+}
+
+.btn {
+  padding: 12px 24px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--primary-dark, #0d9488);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: var(--gray-100);
+  color: var(--gray-700);
+}
+
+.btn-ghost:hover {
+  background: var(--gray-200);
+}
+</style>
