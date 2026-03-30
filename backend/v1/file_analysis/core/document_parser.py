@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import shutil
 import time
 import subprocess
 import tempfile
@@ -15,9 +16,22 @@ os.environ["TMP"] = r"D:\pengpengRAG\backend/v1/file_analysis\temp"
 
 os.environ['MINERU_TOOLS_CONFIG_JSON'] = r'D:\pengpengRAG\backend\v1\file_analysis\mineru.json'
 os.environ['MINERU_MODEL_SOURCE'] = 'local'
+
 from config import config
 from utils.logger import logger
 from utils.rag_tokenizer import RagTokenizer
+
+from mineru.cli.common import read_fn, convert_pdf_bytes_to_bytes_by_pypdfium2
+from mineru.utils.engine_utils import get_vlm_engine
+from mineru.utils.enum_class import MakeMode
+from mineru.utils.model_utils import clean_memory
+from mineru.data.data_reader_writer import FileBasedDataWriter
+from mineru.backend.pipeline.pipeline_analyze import doc_analyze as pipeline_doc_analyze
+from mineru.backend.pipeline.model_json_to_middle_json import result_to_middle_json as pipeline_result_to_middle_json
+from mineru.backend.pipeline.pipeline_middle_json_mkcontent import union_make as pipeline_union_make
+from mineru.backend.vlm.vlm_analyze import doc_analyze as vlm_doc_analyze
+from mineru.backend.vlm.vlm_middle_json_mkcontent import union_make as vlm_union_make
+from mineru.backend.hybrid.hybrid_analyze import doc_analyze as hybrid_doc_analyze
 
 try:
     from services.chromadb_service import ChromaDBService
@@ -30,16 +44,13 @@ except ImportError as e:
 
 _tokenizer = RagTokenizer()
 
-PLAIN_CHUNK_SIZE   = 500
-PLAIN_OVERLAP_SIZE = 50
-
-_PLAIN_TEXT_EXTS = {".md"}
-_OFFICE_EXTS = {".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".txt"}
-
 # 本地文件存储路径配置（暂时替代MinIO）
 LOCAL_STORAGE_ROOT = r"D:\pengpengRAG\backend\v1\file_analysis\uploads"
 LOCAL_IMAGE_DIR = os.path.join(LOCAL_STORAGE_ROOT, "image-minIO")
 IMAGE_URL_PREFIX = "http://localhost:8000/uploads/image-minIO"
+
+# Office 类文件扩展名，需要先用 LibreOffice 转 PDF
+_OFFICE_EXTS = {".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".txt", ".md", ".html"}
 
 
 @dataclass
@@ -59,7 +70,7 @@ class DocumentMetadata:
 class ParseResult:
     text: str
     markdown: str
-    middle_content: Any          # str（PlainText）或 dict（MinerU）
+    middle_content: Any          # dict（MinerU middle_json）
     metadata: DocumentMetadata
     chunks: List[Dict[str, Any]]
     raw_output: Dict[str, Any]
@@ -87,6 +98,7 @@ def _content_list_to_chunks(
     content_list: List[Dict[str, Any]],
     doc_name: str = "",
 ) -> List[Dict[str, Any]]:
+    """将 MinerU content_list 转换为内部 chunk 格式"""
     title_tks = _tokenize(doc_name) if doc_name else ""
     chunks = []
 
@@ -112,6 +124,7 @@ def _content_list_to_chunks(
             raw_content = (caption_str + "\n" + table_body).strip() if caption_str else table_body
 
         else:
+            # image 等类型跳过，由上层单独处理
             continue
 
         content = _normalize_content(raw_content, chunk_type)
@@ -134,23 +147,106 @@ def _content_list_to_chunks(
     return chunks
 
 
-def _slice_with_overlap(lines: List[str]) -> List[str]:
-    result: List[str] = []
-    step  = max(1, PLAIN_CHUNK_SIZE - PLAIN_OVERLAP_SIZE)
-    total = len(lines)
-    start = 0
+# ---------------------------------------------------------------------------
+# MinerU 底层引擎调用（对齐第二个文件的风格）
+# ---------------------------------------------------------------------------
 
-    while start < total:
-        end   = min(start + PLAIN_CHUNK_SIZE, total)
-        chunk = "\n".join(lines[start:end]).strip()
-        if chunk:
-            result.append(chunk)
-        if end >= total:
-            break
-        start += step
+def _parse_by_pipeline(file_path: str, temp_image_dir: str) -> tuple:
+    """使用 pipeline 引擎解析 PDF"""
+    logger.info("[Parser-INFO] 使用 pipeline 引擎")
+    pdf_bytes = read_fn(file_path)
+    pdf_bytes = [convert_pdf_bytes_to_bytes_by_pypdfium2(pdf_bytes)]
 
-    return result
+    infer_results, all_image_lists, all_pdf_docs, lang_list, ocr_enabled_list = pipeline_doc_analyze(
+        pdf_bytes, ["ch"]
+    )
+    if not infer_results:
+        return {}, []
 
+    image_writer = FileBasedDataWriter(temp_image_dir)
+    middle_json = pipeline_result_to_middle_json(
+        infer_results[0], all_image_lists[0], all_pdf_docs[0],
+        image_writer, lang_list[0], ocr_enabled_list[0],
+        formula_enable=True,
+    )
+    image_dir    = os.path.basename(temp_image_dir)
+    content_list = pipeline_union_make(middle_json["pdf_info"], MakeMode.CONTENT_LIST, image_dir)
+    return middle_json, content_list
+
+
+def _parse_by_vlm(file_path: str, temp_image_dir: str) -> tuple:
+    """使用 VLM 引擎解析 PDF"""
+    logger.info("[Parser-INFO] 使用 vlm 引擎")
+    backend   = get_vlm_engine(inference_engine="transformers", is_async=False)
+    pdf_bytes = read_fn(file_path)
+    pdf_bytes = convert_pdf_bytes_to_bytes_by_pypdfium2(pdf_bytes, 0, None)
+
+    image_writer = FileBasedDataWriter(temp_image_dir)
+    middle_json, _ = vlm_doc_analyze(
+        pdf_bytes, image_writer=image_writer, backend=backend,
+        server_url=None, gpu_memory_utilization=0.4,
+    )
+    image_dir    = os.path.basename(temp_image_dir)
+    content_list = vlm_union_make(middle_json["pdf_info"], MakeMode.CONTENT_LIST, image_dir)
+    return middle_json, content_list
+
+
+def _parse_by_hybrid(file_path: str, temp_image_dir: str) -> tuple:
+    """使用 hybrid 引擎解析 PDF"""
+    logger.info("[Parser-INFO] 使用 hybrid 引擎")
+    backend   = get_vlm_engine(inference_engine="transformers", is_async=False)
+    pdf_bytes = read_fn(file_path)
+    pdf_bytes = convert_pdf_bytes_to_bytes_by_pypdfium2(pdf_bytes, 0, None)
+
+    image_writer = FileBasedDataWriter(temp_image_dir)
+    middle_json, _, _ = hybrid_doc_analyze(
+        pdf_bytes,
+        image_writer=image_writer,
+        backend=backend,
+        parse_method="hybrid_auto",
+        language="ch",
+        inline_formula_enable=True,
+        server_url=None,
+        gpu_memory_utilization=0.4,
+    )
+    image_dir    = os.path.basename(temp_image_dir)
+    content_list = vlm_union_make(middle_json["pdf_info"], MakeMode.CONTENT_LIST, image_dir)
+    return middle_json, content_list
+
+
+def _parse_pdf(file_path: str, temp_image_dir: str) -> tuple:
+    """根据环境变量选择引擎，统一入口"""
+    engine = os.getenv("MINERU_PARSE_ENGINE", "pipeline")
+    if engine == "vlm":
+        return _parse_by_vlm(file_path, temp_image_dir)
+    elif engine == "hybrid":
+        return _parse_by_hybrid(file_path, temp_image_dir)
+    else:
+        return _parse_by_pipeline(file_path, temp_image_dir)
+
+
+def _convert_to_pdf_with_libreoffice(file_path: str, out_dir: str) -> str:
+    """使用 LibreOffice 将 Office/文本文件转换为 PDF，返回 PDF 路径"""
+    cmd = [
+        "soffice", "--headless", "--norestore", "--invisible",
+        "--convert-to", "pdf",
+        "--outdir", out_dir,
+        file_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        raise RuntimeError(f"LibreOffice 转换失败: {result.stderr}")
+
+    base_name = os.path.splitext(os.path.basename(file_path))[0]
+    pdf_path  = os.path.join(out_dir, f"{base_name}.pdf")
+    if not os.path.exists(pdf_path):
+        raise FileNotFoundError(f"LibreOffice 转换后未找到 PDF: {pdf_path}")
+    return pdf_path
+
+
+# ---------------------------------------------------------------------------
+# 解析器主类
+# ---------------------------------------------------------------------------
 
 class BaseParser(ABC):
     @abstractmethod
@@ -163,213 +259,12 @@ class BaseParser(ABC):
         pass
 
 
-class PlainTextParser(BaseParser):
-    def parse(
-        self,
-        file_path: str,
-        options: Dict[str, Any] = None,
-        progress_callback: Callable[[int], None] = None,
-    ) -> ParseResult:
-
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
-
-        start_time = time.time()
-        ext = os.path.splitext(file_path)[1].lower()
-
-        if progress_callback:
-            progress_callback(10)
-
-        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-            raw_text = f.read()
-
-        if progress_callback:
-            progress_callback(30)
-
-        if ext == ".md":
-            content_list = self._split_md(raw_text)
-        else:
-            content_list = self._split_txt(raw_text)
-
-        logger.info(
-            f"[PlainParser-INFO] {ext} 直接切分完成，共 {len(content_list)} 个块"
-            f"（CHUNK_SIZE={PLAIN_CHUNK_SIZE}, OVERLAP={PLAIN_OVERLAP_SIZE}）"
-        )
-
-        if progress_callback:
-            progress_callback(70)
-
-        plain_text      = self._to_plain_text(raw_text)
-        standardized_md = raw_text
-        middle_content  = self._generate_middle_content(standardized_md)
-        doc_name        = os.path.splitext(os.path.basename(file_path))[0]
-        chunks          = _content_list_to_chunks(content_list, doc_name=doc_name)
-        processing_time = time.time() - start_time
-
-        if progress_callback:
-            progress_callback(100)
-
-        return ParseResult(
-            text=plain_text,
-            markdown=standardized_md,
-            middle_content=middle_content,
-            metadata=DocumentMetadata(
-                title=doc_name,
-                pages=0,
-                word_count=len(raw_text),
-                file_type=ext,
-                processing_time=processing_time,
-            ),
-            chunks=chunks,
-            raw_output={},
-        )
-
-    def _split_md(self, markdown: str) -> List[Dict[str, Any]]:
-        content_list: List[Dict[str, Any]] = []
-        lines = markdown.split("\n")
-        buffer: List[str] = []
-        in_table = False
-        table_lines: List[str] = []
-        in_code = False
-        code_lines: List[str] = []
-        para_segments: List[str] = []
-
-        def flush_buffer():
-            text = "\n".join(buffer).strip()
-            text = re.sub(r"[!#\\$/]", "", text).strip()
-            if text:
-                para_segments.append(text)
-            buffer.clear()
-
-        def flush_table():
-            caption = []
-            if para_segments:
-                caption = [para_segments.pop()]
-            table_body = "\n".join(table_lines).strip()
-            if table_body:
-                content_list.append({
-                    "type": "table",
-                    "table_caption": caption,
-                    "table_body": table_body,
-                })
-            table_lines.clear()
-
-        def flush_para_segments():
-            if not para_segments:
-                return
-            all_lines: List[str] = []
-            for seg in para_segments:
-                all_lines.extend(seg.split("\n"))
-                all_lines.append("")
-            for chunk_text in _slice_with_overlap(all_lines):
-                if chunk_text.strip():
-                    content_list.append({"type": "text", "text": chunk_text})
-            para_segments.clear()
-
-        def is_table_row(line: str) -> bool:
-            return bool(re.match(r"^\s*\|.*\|\s*$", line))
-
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-
-            if line.strip().startswith("```"):
-                if not in_code:
-                    flush_buffer()
-                    in_code = True
-                    code_lines = [line]
-                else:
-                    code_lines.append(line)
-                    in_code = False
-                    flush_para_segments()
-                    content_list.append({"type": "text", "text": "\n".join(code_lines)})
-                    code_lines.clear()
-                i += 1
-                continue
-
-            if in_code:
-                code_lines.append(line)
-                i += 1
-                continue
-
-            if line.strip().startswith("$$"):
-                flush_buffer()
-                eq_lines = [line]
-                if not line.strip().endswith("$$") or len(line.strip()) == 2:
-                    i += 1
-                    while i < len(lines):
-                        eq_lines.append(lines[i])
-                        if lines[i].strip().endswith("$$"):
-                            break
-                        i += 1
-                eq_text = "\n".join(eq_lines).strip()
-                if eq_text:
-                    flush_para_segments()
-                    content_list.append({"type": "equation", "text": eq_text})
-                i += 1
-                continue
-
-            if is_table_row(line):
-                if not in_table:
-                    flush_buffer()
-                    in_table = True
-                table_lines.append(line)
-                i += 1
-                continue
-            else:
-                if in_table:
-                    flush_para_segments()
-                    flush_table()
-                    in_table = False
-
-            if line.strip() == "":
-                if buffer:
-                    flush_buffer()
-            else:
-                buffer.append(line)
-
-            i += 1
-
-        if in_code and code_lines:
-            flush_para_segments()
-            content_list.append({"type": "text", "text": "\n".join(code_lines)})
-        if in_table and table_lines:
-            flush_para_segments()
-            flush_table()
-        if buffer:
-            flush_buffer()
-        flush_para_segments()
-
-        return content_list
-
-    def _split_txt(self, text: str) -> List[Dict[str, Any]]:
-        lines = text.split("\n")
-        content_list = []
-        for chunk_text in _slice_with_overlap(lines):
-            if chunk_text.strip():
-                content_list.append({"type": "text", "text": chunk_text})
-        return content_list
-
-    def _to_plain_text(self, text: str) -> str:
-        t = re.sub(r'!\[.*?\]\(.*?\)', '', text)
-        t = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', t)
-        t = re.sub(r'[#*`]', '', t)
-        t = re.sub(r'\n+', '\n', t)
-        return t.strip()
-
-    def _generate_middle_content(self, markdown: str) -> str:
-        sections = ["<document>"]
-        title_match = re.search(r'^#\s+(.+)$', markdown, re.MULTILINE)
-        if title_match:
-            sections.append(f"<title>{title_match.group(1).strip()}</title>")
-        sections.append("<content>")
-        sections.append(markdown)
-        sections.append("</content>")
-        sections.append("</document>")
-        return "\n".join(sections)
-
-
 class MinerUParser(BaseParser):
+    """
+    统一走 MinerU 底层引擎解析。
+    - PDF  → 直接调用底层引擎
+    - 其余 → LibreOffice 转 PDF → 再调用底层引擎
+    """
 
     def parse(
         self,
@@ -380,190 +275,90 @@ class MinerUParser(BaseParser):
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
 
-        ext = os.path.splitext(file_path)[1].lower()
-
-        if ext in _PLAIN_TEXT_EXTS:
-            logger.info(f"[Parser-INFO] 检测到 {ext} 文件，使用直接切分模式（跳过 MinerU）")
-            return PlainTextParser().parse(file_path, options, progress_callback)
-
-        if ext in _OFFICE_EXTS:
-            logger.info(f"[Parser-INFO] 检测到 {ext} 文件，使用 LibreOffice 转换为 PDF")
-            file_path = self._convert_to_pdf(file_path)
-            if not file_path:
-                raise ValueError(f"Failed to convert {ext} to PDF")
-            ext = ".pdf"
-
-        opts       = options or {}
         start_time = time.time()
+        ext        = os.path.splitext(file_path)[1].lower()
 
         if progress_callback:
             progress_callback(10)
 
-        result = self._parse_local(file_path, opts, progress_callback)
-        processing_time = time.time() - start_time
-
-        if progress_callback:
-            progress_callback(80)
-
-        final_result = self._process_result_from_local(result, file_path, processing_time)
-
-        if progress_callback:
-            progress_callback(100)
-
-        return final_result
-
-    def _parse_local(
-        self,
-        file_path: str,
-        options: Dict[str, Any],
-        progress_callback: Callable[[int], None] = None,
-    ) -> Dict[str, Any]:
-        """直接调用 mineru 源码进行解析"""
-        from mineru.cli.common import do_parse
-
-        output_dir    = tempfile.mkdtemp(prefix="mineru_")
-        pdf_file_name = Path(file_path).stem
-        pdf_bytes     = Path(file_path).read_bytes()
-
-        backend        = options.get("backend",        "pipeline")
-        parse_method   = options.get("parse_method",   "auto")
-        formula_enable = options.get("formula_enable", True)
-        table_enable   = options.get("table_enable",   True)
-
-        logger.info(
-            f"[Parser-INFO] 使用本地 MinerU 解析: {file_path}, "
-            f"backend={backend}, parse_method={parse_method}"
-        )
+        temp_dir       = tempfile.mkdtemp(prefix="mineru_")
+        temp_image_dir = os.path.join(temp_dir, "images")
+        os.makedirs(temp_image_dir, exist_ok=True)
 
         try:
-            do_parse(
-                output_dir=output_dir,
-                pdf_file_names=[pdf_file_name],
-                pdf_bytes_list=[pdf_bytes],
-                p_lang_list=["ch"],
-                backend=backend,
-                parse_method=parse_method,
-                formula_enable=formula_enable,
-                table_enable=table_enable,
-                f_draw_layout_bbox=False,
-                f_draw_span_bbox=False,
-                f_dump_md=True,
-                f_dump_middle_json=True,
-                f_dump_content_list=True,
-                f_dump_model_output=False,
-                f_dump_orig_pdf=False,
-            )
+            # Office / 文本类先转 PDF
+            if ext in _OFFICE_EXTS:
+                logger.info(f"[Parser-INFO] {ext} 文件先用 LibreOffice 转为 PDF")
+                pdf_path = _convert_to_pdf_with_libreoffice(file_path, temp_dir)
+            else:
+                pdf_path = file_path
+
+            if progress_callback:
+                progress_callback(30)
+
+            middle_json, content_list = _parse_pdf(pdf_path, temp_image_dir)
+
+            if progress_callback:
+                progress_callback(70)
+
         except Exception as e:
-            logger.error(f"[Parser-ERROR] MinerU 本地解析失败: {e}")
+            logger.error(f"[Parser-ERROR] 解析失败: {e}")
             raise
 
+        processing_time = time.time() - start_time
+        doc_name        = os.path.splitext(os.path.basename(file_path))[0]
+        chunks          = _content_list_to_chunks(content_list, doc_name=doc_name)
+        metadata        = self._extract_metadata(file_path, middle_json, content_list, processing_time)
+
         if progress_callback:
-            progress_callback(50)
-
-        return {
-            "output_dir":   output_dir,
-            "file_name":    pdf_file_name,
-            "parse_method": parse_method,
-        }
-
-    def _process_result_from_local(
-        self,
-        local_result: Dict[str, Any],
-        file_path: str,
-        processing_time: float,
-    ) -> ParseResult:
-        """处理本地 MinerU 解析结果"""
-        output_dir   = local_result["output_dir"]
-        file_name    = local_result["file_name"]
-        parse_method = local_result.get("parse_method", "auto")
-
-        # MinerU 实际输出路径是 output_dir/{file_name}/{parse_method}/
-        result_dir = os.path.join(output_dir, file_name, parse_method)
-
-        if not os.path.exists(result_dir):
-            actual_files = []
-            for root, _, files in os.walk(output_dir):
-                for f in files:
-                    actual_files.append(os.path.join(root, f))
-            logger.error(
-                f"[Parser-ERROR] 预期输出目录不存在: {result_dir}\n"
-                f"实际生成的文件: {actual_files}"
-            )
-            raise FileNotFoundError(f"MinerU 输出目录不存在: {result_dir}")
-
-        md_path           = os.path.join(result_dir, f"{file_name}.md")
-        content_list_path = os.path.join(result_dir, f"{file_name}_content_list.json")
-        middle_json_path  = os.path.join(result_dir, f"{file_name}_middle.json")
-
-        markdown_content = ""
-        if os.path.exists(md_path):
-            with open(md_path, "r", encoding="utf-8") as f:
-                markdown_content = f.read()
-        else:
-            logger.warning(f"[Parser-WARNING] markdown 文件不存在: {md_path}")
-
-        content_list = []
-        if os.path.exists(content_list_path):
-            try:
-                with open(content_list_path, "r", encoding="utf-8") as f:
-                    content_list = json.load(f)
-                logger.info(f"[Parser-INFO] 从 content_list.json 加载 {len(content_list)} 个块")
-            except Exception as e:
-                logger.warning(f"[Parser-WARNING] 读取 content_list 失败: {e}")
-
-        middle_content: Any = {}
-        if os.path.exists(middle_json_path):
-            try:
-                with open(middle_json_path, "r", encoding="utf-8") as f:
-                    middle_content = json.load(f)
-            except Exception as e:
-                logger.warning(f"[Parser-WARNING] 读取 middle_json 失败: {e}")
-
-        standardized_md = self._standardize_markdown(markdown_content)
-        plain_text      = self._markdown_to_text(standardized_md)
-        metadata        = self._extract_metadata_from_local(
-            file_path, markdown_content, processing_time, content_list
-        )
-        doc_name = os.path.splitext(os.path.basename(file_path))[0]
-        chunks   = _content_list_to_chunks(content_list, doc_name=doc_name)
+            progress_callback(100)
 
         return ParseResult(
-            text=plain_text,
-            markdown=standardized_md,
-            middle_content=middle_content,
+            text=self._to_plain_text(middle_json),
+            markdown="",          # 不再单独维护 markdown，middle_json 已足够
+            middle_content=middle_json,
             metadata=metadata,
             chunks=chunks,
-            raw_output={"content_list": content_list, "middle_content": middle_content},
+            raw_output={
+                "content_list": content_list, 
+                "middle_content": middle_json,
+                "temp_image_dir": temp_image_dir,
+            },
         )
 
-    def _extract_metadata_from_local(
+    # ------------------------------------------------------------------
+    # 内部辅助
+    # ------------------------------------------------------------------
+
+    def _extract_metadata(
         self,
         file_path: str,
-        markdown_content: str,
-        processing_time: float,
+        middle_json: dict,
         content_list: List[Dict],
+        processing_time: float,
     ) -> DocumentMetadata:
-        """从本地解析结果提取元数据"""
-        pages  = set()
-        images = set()
-        for item in content_list:
-            if "page_idx" in item:
-                pages.add(item["page_idx"])
-            if item.get("type") == "image" and item.get("img_url"):
-                images.add(item["img_url"])
+        pages  = {item["page_idx"] for item in content_list if "page_idx" in item}
+        images = {item.get("img_path") for item in content_list if item.get("type") == "image" and item.get("img_path")}
 
-        title_match = re.search(r'^#\s+(.+)$', markdown_content, re.MULTILINE)
-        title = (
-            title_match.group(1).strip()
-            if title_match
-            else os.path.splitext(os.path.basename(file_path))[0]
+        # 尝试从 content_list 的第一个文本块提取标题
+        title = os.path.splitext(os.path.basename(file_path))[0]
+        for item in content_list:
+            if item.get("type") == "text" and item.get("text", "").strip():
+                first_line = item["text"].strip().splitlines()[0]
+                if first_line:
+                    title = first_line[:80]
+                break
+
+        word_count = sum(
+            len(item.get("text", "") + item.get("table_body", ""))
+            for item in content_list
         )
 
         return DocumentMetadata(
             title=title,
             author="",
             pages=len(pages),
-            word_count=len(markdown_content.replace("\n", "").replace(" ", "")),
+            word_count=word_count,
             file_type=os.path.splitext(file_path)[1].lower(),
             has_images=bool(images),
             has_tables=any(i.get("type") == "table"    for i in content_list),
@@ -571,55 +366,22 @@ class MinerUParser(BaseParser):
             processing_time=processing_time,
         )
 
-    def _convert_to_pdf(self, file_path: str) -> Optional[str]:
-        """使用 LibreOffice 将 Office 文档转换为 PDF"""
-        try:
-            cmd = [
-                "soffice",
-                "--headless",
-                "--convert-to", "pdf",
-                "--outdir", tempfile.gettempdir(),
-                file_path
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    def _to_plain_text(self, middle_json: dict) -> str:
+        """从 middle_json 拼出纯文本，供上层使用"""
+        lines = []
+        for page in middle_json.get("pdf_info", []):
+            for block in page.get("preproc_blocks", []):
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        text = span.get("content", "").strip()
+                        if text:
+                            lines.append(text)
+        return "\n".join(lines)
 
-            if result.returncode != 0:
-                logger.error(f"LibreOffice conversion failed: {result.stderr}")
-                return None
 
-            base_name = os.path.splitext(os.path.basename(file_path))[0]
-            pdf_path  = os.path.join(tempfile.gettempdir(), f"{base_name}.pdf")
-
-            if os.path.exists(pdf_path):
-                logger.info(f"Converted to PDF: {pdf_path}")
-                return pdf_path
-            else:
-                logger.error(f"PDF file not found after conversion: {pdf_path}")
-                return None
-
-        except subprocess.TimeoutExpired:
-            logger.error("LibreOffice conversion timeout")
-            return None
-        except Exception as e:
-            logger.error(f"LibreOffice conversion error: {e}")
-            return None
-
-    def _markdown_to_text(self, markdown: str) -> str:
-        text = re.sub(r'!\[.*?\]\(.*?\)', '', markdown)
-        text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-        text = re.sub(r'[#*`]', '', text)
-        text = re.sub(r'\n+', '\n', text)
-        return text.strip()
-
-    def _standardize_markdown(self, markdown: str) -> str:
-        md = markdown
-        md = re.sub(r'^\s*#\s+',   '# ',   md, flags=re.MULTILINE)
-        md = re.sub(r'^\s*##\s+',  '## ',  md, flags=re.MULTILINE)
-        md = re.sub(r'^\s*###\s+', '### ', md, flags=re.MULTILINE)
-        md = re.sub(r'\n{3,}', '\n\n', md)
-        md = re.sub(r'\|\s*-\s*\|', '| --- |', md)
-        return md.strip()
-
+# ---------------------------------------------------------------------------
+# DocumentParser：组合 MinerUParser + 图片本地存储
+# ---------------------------------------------------------------------------
 
 class DocumentParser:
     def __init__(self):
@@ -634,60 +396,66 @@ class DocumentParser:
             logger.error(f"[Parser-ERROR] 创建图片目录失败: {e}")
 
     def _upload_image_local(self, img_path_src: str) -> Optional[Dict[str, str]]:
-        """将图片复制到本地存储目录"""
+        """将图片复制到本地存储目录，返回 img_id / img_url"""
         if not os.path.exists(img_path_src):
             logger.warning(f"[Parser-WARNING] 图片文件不存在: {img_path_src}")
             return None
-
         try:
-            import shutil
             img_id       = _generate_uuid()
             img_ext      = os.path.splitext(img_path_src)[1]
             img_filename = f"{img_id}{img_ext}"
             img_path_dst = os.path.join(LOCAL_IMAGE_DIR, img_filename)
-
             shutil.copy2(img_path_src, img_path_dst)
             img_url = f"{IMAGE_URL_PREFIX}/{img_filename}"
-
             logger.info(f"[Parser-INFO] 图片处理完成 - ID: {img_id}, URL: {img_url}")
-            return {
-                "img_id":         img_id,
-                "img_url":        img_url,
-                "img_path_local": img_path_dst,
-            }
-
+            return {"img_id": img_id, "img_url": img_url, "img_path_local": img_path_dst}
         except Exception as e:
             logger.error(f"[Parser-ERROR] 上传图片失败: {e}")
             return None
 
-    def _associate_images_with_chunks(
+    def _process_images(
         self,
+        content_list: List[Dict[str, Any]],
+        temp_image_dir: str,
         chunks: List[Dict[str, Any]],
-        image_info_list: List[Dict[str, Any]],
-    ) -> None:
-        """将图片关联到最近的文本块"""
-        if not image_info_list:
-            return
+    ) -> List[Dict[str, Any]]:
+        """
+        遍历 content_list 中的 image 条目，上传到本地，
+        然后按位置关联到最近的文本块（distance < 5）。
+        返回 image_info_list。
+        """
+        image_info_list = []
 
-        for chunk_idx, chunk in enumerate(chunks):
-            if chunk["type"] not in ("text", "table"):
+        for idx, item in enumerate(content_list):
+            if item.get("type") != "image":
                 continue
+            img_path_rel = item.get("img_path") or item.get("img_url", "")
+            if not img_path_rel:
+                continue
+            img_path_abs = os.path.join(temp_image_dir, os.path.basename(img_path_rel))
+            info = self._upload_image_local(img_path_abs)
+            if info:
+                info["position"] = idx
+                image_info_list.append(info)
 
-            nearest_image = None
-            min_distance  = float('inf')
+        # 关联到最近的文本/表格块
+        if image_info_list:
+            for chunk_idx, chunk in enumerate(chunks):
+                if chunk["type"] not in ("text", "table"):
+                    continue
+                nearest, min_dist = None, float("inf")
+                for img_info in image_info_list:
+                    dist = abs(chunk_idx - img_info["position"])
+                    if dist < 5 and dist < min_dist:
+                        nearest, min_dist = img_info, dist
+                if nearest:
+                    chunk["img_id"] = nearest["img_id"]
+                    logger.info(
+                        f"[Parser-INFO] 关联图片到块 {chunk_idx}: "
+                        f"img_id={nearest['img_id']}, distance={min_dist}"
+                    )
 
-            for img_info in image_info_list:
-                distance = abs(chunk_idx - img_info.get("position", 0))
-                if distance < 5 and distance < min_distance:
-                    nearest_image = img_info
-                    min_distance  = distance
-
-            if nearest_image:
-                chunk["img_id"] = nearest_image["img_id"]
-                logger.info(
-                    f"[Parser-INFO] 关联图片到块 {chunk_idx}: "
-                    f"img_id={nearest_image['img_id']}, distance={min_distance}"
-                )
+        return image_info_list
 
     def parse(
         self,
@@ -697,14 +465,21 @@ class DocumentParser:
     ) -> Dict[str, Any]:
         result = self.mineru_parser.parse(file_path, options, progress_callback)
 
-        image_count = sum(1 for chunk in result.chunks if chunk.get("type") == "image")
+        # 取出解析时产生的临时图片目录（存在 raw_output 里）
+        temp_image_dir = options.get("temp_image_dir", "") if options else ""
+        image_info_list = []
+        if temp_image_dir and os.path.isdir(temp_image_dir):
+            content_list    = result.raw_output.get("content_list", [])
+            image_info_list = self._process_images(content_list, temp_image_dir, result.chunks)
+
+        image_count = len(image_info_list)
 
         return {
             "text":           result.text,
             "markdown":       result.markdown,
             "middle_content": result.middle_content,
             "chunks":         result.chunks,
-            "images":         [],
+            "images":         image_info_list,
             "metadata": {
                 "title":           result.metadata.title,
                 "author":          result.metadata.author,
@@ -715,11 +490,15 @@ class DocumentParser:
                 "has_tables":      result.metadata.has_tables,
                 "has_formulas":    result.metadata.has_formulas,
                 "processing_time": result.metadata.processing_time,
-                "parser":          "plain_text" if result.raw_output == {} else "mineru_local",
+                "parser":          "mineru_local",
                 "image_count":     image_count,
             },
         }
 
+
+# ---------------------------------------------------------------------------
+# DocumentProcessor：解析 + 向量化 + 存储
+# ---------------------------------------------------------------------------
 
 class DocumentProcessor:
     def __init__(self):
@@ -741,11 +520,11 @@ class DocumentProcessor:
 
         parse_result = self.parser.parse(file_path, options, progress_callback)
 
-        chunks     = parse_result.get('chunks', [])
+        chunks     = parse_result.get("chunks", [])
         embeddings = None
 
         if chunks and self.embedding:
-            texts      = [c.get('content', c.get('text', '')) for c in chunks]
+            texts      = [c.get("content", c.get("text", "")) for c in chunks]
             embeddings = self.embedding.encode(texts)
 
         if chunks and self.chromadb and file_id and kb_id:
@@ -753,20 +532,24 @@ class DocumentProcessor:
 
         if chunks and self.mysql and file_id and kb_id:
             self.mysql.save_chunks(file_id, kb_id, chunks)
+            # 保存图片元数据
+            image_info_list = parse_result.get("images", [])
+            if image_info_list:
+                self.mysql.save_images(file_id, kb_id, image_info_list)
 
         if self.mysql and file_id:
-            meta = parse_result.get('metadata', {})
+            meta = parse_result.get("metadata", {})
             self.mysql.update_document_status(
                 doc_id=file_id,
                 status="completed",
-                total_pages=meta.get('pages', 0),
+                total_pages=meta.get("pages", 0),
                 total_chunks=len(chunks),
-                text_length=meta.get('word_count', 0),
-                image_count=meta.get('image_count', 0),
-                parser=meta.get('parser', 'unknown')
+                text_length=meta.get("word_count", 0),
+                image_count=meta.get("image_count", 0),
+                parser=meta.get("parser", "unknown"),
             )
 
         if self.mysql and kb_id and file_id:
-            self.mysql.update_kb_document_status(kb_id, file_id, 'completed', 100)
+            self.mysql.update_kb_document_status(kb_id, file_id, "completed", 100)
 
         return parse_result

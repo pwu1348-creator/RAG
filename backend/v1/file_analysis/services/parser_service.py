@@ -154,8 +154,8 @@ class ParserService:
             if task.doc_id:
                 # Delete from MySQL
                 self.mysql.delete_document(task.doc_id)
-                # Delete from ChromaDB
-                self.chromadb.delete_document_chunks(task.doc_id)
+                # Delete from ChromaDB (doc_id first, then kb_id)
+                self.chromadb.delete_document_chunks(task.doc_id, task.knowledge_base_id)
             
             # Delete from local storage
             if task.minio_url:

@@ -55,15 +55,16 @@ class ChromaDBService:
         
         try:
             ids = [f"{doc_id}_chunk_{i}" for i in range(len(chunks))]
-            texts = [chunk.get('text', chunk.get('content', '')) for chunk in chunks]
+            texts = [chunk.get('content', chunk.get('text', '')) for chunk in chunks]
             metadatas = [
                 {
                     'doc_id': doc_id,
                     'kb_id': kb_id,
                     'chunk_index': i,
-                    'page_number': chunk.get('page_number', 0),
-                    'start_pos': chunk.get('start', 0),
-                    'end_pos': chunk.get('end', 0)
+                    'page_idx': chunk.get('page_idx', 0),
+                    'bbox': ','.join(map(str, chunk.get('bbox', [0, 0, 0, 0]))) if chunk.get('bbox') else None,
+                    'chunk_type': chunk.get('type', 'text'),
+                    'img_id': chunk.get('img_id', '')
                 }
                 for i, chunk in enumerate(chunks)
             ]
@@ -81,12 +82,17 @@ class ChromaDBService:
             logger.error(f"Add chunks failed: {e}")
             raise
     
-    def delete_document_chunks(self, kb_id: str, doc_id: str):
+    def delete_document_chunks(self, doc_id: str, kb_id: str = None):
         try:
-            self.collection.delete(
-                where={"$and": [{"kb_id": kb_id}, {"doc_id": doc_id}]}
-            )
-            logger.info(f"Deleted chunks for kb: {kb_id}, doc: {doc_id}")
+            if kb_id:
+                self.collection.delete(
+                    where={"$and": [{"kb_id": kb_id}, {"doc_id": doc_id}]}
+                )
+            else:
+                self.collection.delete(
+                    where={"doc_id": doc_id}
+                )
+            logger.info(f"Deleted chunks for doc: {doc_id}")
         except Exception as e:
             logger.error(f"Delete chunks failed: {e}")
             raise
