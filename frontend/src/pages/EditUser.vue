@@ -10,33 +10,21 @@
       <h1 class="page-title">编辑用户</h1>
     </div>
 
-    <div class="form-card">
+    <!-- 加载中状态 -->
+    <div v-if="loading" class="loading-card">
+      <div class="loading-spinner"></div>
+      <span>加载用户信息中...</span>
+    </div>
+
+    <div v-else class="form-card">
       <form @submit.prevent="handleSubmit">
         <div class="form-group">
-          <label>用户名 *</label>
+          <label>账号 *</label>
           <input 
             type="text" 
             v-model="form.username" 
-            placeholder="请输入用户名" 
+            placeholder="请输入登录账号" 
             required
-          />
-        </div>
-
-        <div class="form-group">
-          <label>新密码</label>
-          <input 
-            type="password" 
-            v-model="form.password" 
-            placeholder="请输入新密码"
-          />
-        </div>
-
-        <div class="form-group">
-          <label>邮箱</label>
-          <input 
-            type="email" 
-            v-model="form.email" 
-            placeholder="请输入邮箱"
           />
         </div>
 
@@ -46,6 +34,15 @@
             type="text" 
             v-model="form.real_name" 
             placeholder="请输入真实姓名"
+          />
+        </div>
+
+        <div class="form-group">
+          <label>邮箱</label>
+          <input 
+            type="email" 
+            v-model="form.email" 
+            placeholder="请输入邮箱"
           />
         </div>
 
@@ -65,6 +62,16 @@
             v-model="form.department" 
             placeholder="请输入部门"
           />
+        </div>
+
+        <div class="form-group">
+          <label>重置密码</label>
+          <input 
+            type="password" 
+            v-model="form.password" 
+            placeholder="留空则不修改密码"
+          />
+          <span class="field-hint">如需修改密码请填写，否则留空</span>
         </div>
 
         <div class="form-actions">
@@ -271,5 +278,38 @@ onMounted(() => {
 
 .btn-ghost:hover {
   background: var(--gray-200);
+}
+
+/* 加载状态 */
+.loading-card {
+  background: white;
+  border-radius: var(--radius-xl);
+  padding: 64px 32px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  color: var(--gray-500);
+  font-size: 14px;
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--gray-200);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 字段提示 */
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--gray-400);
 }
 </style>

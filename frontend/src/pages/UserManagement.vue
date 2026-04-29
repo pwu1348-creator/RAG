@@ -46,9 +46,9 @@
         </select>
         <select class="filter-select" v-model="filterStatus">
           <option value="">全部状态</option>
-          <option value="active">在线</option>
+          <option value="active">正常</option>
           <option value="inactive">未激活</option>
-          <option value="banned">已禁用</option>
+          <option value="locked">已锁定</option>
         </select>
       </div>
     </div>
@@ -292,7 +292,7 @@ const getRoleText = (role) => {
 }
 
 const getStatusText = (status) => {
-  const map = { active: '在线', inactive: '未激活', banned: '已禁用' }
+  const map = { active: '正常', inactive: '未激活', locked: '已锁定' }
   return map[status] || status
 }
 
@@ -628,7 +628,7 @@ onMounted(() => {
   color: #ef6c00;
 }
 
-.status-badge.banned {
+.status-badge.locked {
   background: rgba(229, 115, 115, 0.2);
   color: #c62828;
 }

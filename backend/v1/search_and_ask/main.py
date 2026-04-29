@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import config
 from routes import router as search_router
+from routes.auth_routes import router as auth_router
 from utils.logger import logger
 
 
@@ -48,6 +49,9 @@ def create_app() -> FastAPI:
         allow_headers=config.api.CORS_ALLOW_HEADERS,
     )
 
+    # auth 路由挂在 /api/v1 下，不加 /search 前缀
+    app.include_router(auth_router, prefix=config.api.API_PREFIX)
+    # 检索/问答/索引路由挂在 /api/v1/search 下
     app.include_router(search_router, prefix=f"{config.api.API_PREFIX}/search")
 
     @app.get("/health")

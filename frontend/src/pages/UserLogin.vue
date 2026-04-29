@@ -4,14 +4,16 @@
     <div class="watermark">@ 吴世鹏</div>
 
     <div class="login-card">
-      <!-- 左侧：泥巴人 -->
-      <div class="mud-side">
+      <!-- 左侧：角色区域 -->
+      <div class="mud-side" @mousemove="onMouseMove">
         <div class="mud-men-wrap">
           <MudMan
-            v-for="(m, i) in mudMen"
-            :key="i"
-            :state="m.state"
-            :style="m.style"
+            :isTypingUsername="isTypingUsername"
+            :isTypingPassword="isTypingPassword"
+            :showPassword="showPwd"
+            :hasPassword="password.length > 0"
+            :mouseX="mouseX"
+            :mouseY="mouseY"
           />
         </div>
         <div class="mud-title">
@@ -109,7 +111,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import FallingLeaves from '../components/FallingLeaves.vue'
 import MudMan from '../components/MudMan.vue'
@@ -127,52 +129,42 @@ const passwordFocused = ref(false)
 const usernameRef = ref(null)
 const passwordRef = ref(null)
 
-// 泥巴人状态: idle | peek | username | password
-const mudState = ref('idle')
+// 角色交互状态
+const mouseX = ref(0)
+const mouseY = ref(0)
+const isTypingUsername = ref(false)
+const isTypingPassword = ref(false)
 
-// 三个泥巴人，位置错落
-const mudMen = computed(() => [
-  { state: mudState.value, style: { left: '10px', bottom: '20px', transform: 'scale(0.85)' } },
-  { state: mudState.value, style: { left: '90px', bottom: '30px', transform: 'scale(1)' } },
-  { state: mudState.value, style: { left: '175px', bottom: '15px', transform: 'scale(0.9)' } },
-])
-
-let idleTimer = null
-
-function resetIdleTimer() {
-  clearTimeout(idleTimer)
-  idleTimer = setTimeout(() => {
-    if (mudState.value !== 'password') {
-      mudState.value = 'peek'
-    }
-  }, 2000)
+// 全局鼠标监听，确保鼠标在表单区域时角色也能跟踪
+function onMouseMove(e) {
+  mouseX.value = e.clientX
+  mouseY.value = e.clientY
 }
 
 function onUsernameFocus() {
   usernameFocused.value = true
-  mudState.value = 'username'
-  clearTimeout(idleTimer)
+  isTypingUsername.value = true
+  isTypingPassword.value = false
 }
 
 function onUsernameBlur() {
   usernameFocused.value = false
-  resetIdleTimer()
+  isTypingUsername.value = false
 }
 
 function onUsernameInput() {
-  mudState.value = 'username'
-  resetIdleTimer()
+  isTypingUsername.value = true
 }
 
 function onPasswordFocus() {
   passwordFocused.value = true
-  mudState.value = 'password'
-  clearTimeout(idleTimer)
+  isTypingPassword.value = true
+  isTypingUsername.value = false
 }
 
 function onPasswordBlur() {
   passwordFocused.value = false
-  resetIdleTimer()
+  isTypingPassword.value = false
 }
 
 async function handleLogin() {
@@ -214,12 +206,12 @@ onMounted(() => {
     username.value = remembered
     rememberMe.value = true
   }
-  // 初始偷看
-  idleTimer = setTimeout(() => { mudState.value = 'peek' }, 1500)
+  // 注册全局鼠标监听
+  window.addEventListener('mousemove', onMouseMove)
 })
 
 onUnmounted(() => {
-  clearTimeout(idleTimer)
+  window.removeEventListener('mousemove', onMouseMove)
 })
 </script>
 
@@ -267,7 +259,7 @@ onUnmounted(() => {
 .login-card {
   display: flex;
   width: 100%;
-  max-width: 900px;
+  max-width: 1020px;
   min-height: 520px;
   background: rgba(255,255,255,0.92);
   backdrop-filter: blur(20px);
@@ -280,7 +272,7 @@ onUnmounted(() => {
 
 /* 左侧泥巴人区域 */
 .mud-side {
-  width: 340px;
+  width: 460px;
   flex-shrink: 0;
   background: linear-gradient(160deg, #c8f0dc 0%, #a8e6cf 40%, #88d8b0 100%);
   display: flex;
@@ -309,11 +301,23 @@ onUnmounted(() => {
   border-radius: 50%;
 }
 
+/* 用 scale 把 550×400 的角色缩放到左侧面板宽度内 */
 .mud-men-wrap {
   position: relative;
-  width: 280px;
-  height: 200px;
+  /* 缩放后的实际占位尺寸：550 * 0.76 ≈ 418, 400 * 0.76 ≈ 304 */
+  width: 418px;
+  height: 304px;
   flex-shrink: 0;
+  overflow: visible;
+}
+
+.mud-men-wrap :deep(.chars-wrap) {
+  transform: scale(0.76);
+  transform-origin: bottom center;
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  translate: -50% 0;
 }
 
 .mud-title {

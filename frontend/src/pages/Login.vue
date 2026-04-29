@@ -29,16 +29,9 @@
       <div class="cube-decoration cube-right-center"></div>
       
       <div class="login-left">
-        <!-- 泥巴人 -->
-        <div class="mud-man-area" ref="mudManAreaRef">
-          <MudMan
-            :state="mudManState"
-            :mouseX="mouseX"
-            :mouseY="mouseY"
-            :centerX="mudManCenterX"
-            :centerY="mudManCenterY"
-            :leaning="mudManLeaning"
-          />
+        <!-- 场景图片 -->
+        <div class="scene-image">
+          <img src="/images/b1eedd3e7a04e3594f1f9398fbbb99c4.jpg" alt="场景图片" class="scene-img" />
         </div>
       </div>
 
@@ -65,8 +58,6 @@
                   class="input"
                   placeholder="请输入用户名"
                   v-model="username"
-                  @focus="onUsernameFocus"
-                  @blur="onInputBlur"
                   required
                 />
               </div>
@@ -82,8 +73,6 @@
                   class="input"
                   placeholder="请输入密码"
                   v-model="password"
-                  @focus="onPasswordFocus"
-                  @blur="onInputBlur"
                   required
                 />
                 <button
@@ -124,11 +113,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import FallingLeaves from '../components/FallingLeaves.vue'
-import MudMan from '../components/MudMan.vue'
 import { useUserStore } from '../stores/user'
 
 const router = useRouter()
@@ -141,28 +129,6 @@ const showPassword = ref(false)
 const rememberMe = ref(false)
 const loading = ref(false)
 const error = ref('')
-
-// 鼠标位置
-const mouseX = ref(0)
-const mouseY = ref(0)
-
-// 泥巴人状态：idle | username | password
-const mudManState = ref('idle')
-// 泥巴人倾斜方向：'' | 'left' | 'right'
-const mudManLeaning = ref('')
-// 泥巴人中心坐标（用于眼球跟随计算）
-const mudManCenterX = ref(0)
-const mudManCenterY = ref(0)
-const mudManAreaRef = ref(null)
-
-// 更新泥巴人中心坐标
-const updateMudManCenter = () => {
-  if (mudManAreaRef.value) {
-    const rect = mudManAreaRef.value.getBoundingClientRect()
-    mudManCenterX.value = rect.left + rect.width / 2
-    mudManCenterY.value = rect.top + rect.height / 2
-  }
-}
 
 // 鼠标移动
 const trails = ref([])
@@ -196,33 +162,10 @@ const handleMouseMove = (e) => {
   }, 500)
 }
 
-// 输入框聚焦/失焦
-// 登录框在右侧 → 泥巴人在左侧 → 输入时身体向左倾（远离输入框）
-const onUsernameFocus = () => {
-  mudManState.value = 'username'
-  mudManLeaning.value = 'left'
-}
-
-const onPasswordFocus = () => {
-  mudManState.value = 'password'
-  mudManLeaning.value = 'left'
-}
-
-const onInputBlur = () => {
-  mudManState.value = 'idle'
-  mudManLeaning.value = ''
-}
-
-onMounted(() => {
-  nextTick(() => {
-    updateMudManCenter()
-  })
-  window.addEventListener('resize', updateMudManCenter)
-})
+onMounted(() => {})
 
 onUnmounted(() => {
   if (trailTimeout) clearTimeout(trailTimeout)
-  window.removeEventListener('resize', updateMudManCenter)
 })
 
 const handleLogin = async () => {
@@ -377,13 +320,32 @@ const handleLogin = async () => {
   border-radius: var(--radius-xl) 0 0 var(--radius-xl);
 }
 
-.mud-man-area {
+.scene-image {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
   height: 100%;
-  min-height: 280px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+}
+
+.scene-img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--radius);
+  user-select: none;
+  pointer-events: none;
+  -webkit-user-drag: none;
 }
 
 /* 右侧登录 */

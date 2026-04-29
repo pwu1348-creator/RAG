@@ -247,7 +247,7 @@ const assistantConfig = reactive({
   ...JSON.parse(localStorage.getItem(ASSISTANT_KEY) || '{}'),
 })
 
-// ── 知识库列表 ────────────────────────────────────────
+// ── 知识库列表（按部门权限过滤） ─────────────────────
 const kbList = ref([])
 async function loadKBList() {
   try {
@@ -255,7 +255,24 @@ async function loadKBList() {
       params: { page: 1, size: 100 },
       headers: { Authorization: `Bearer ${userToken()}` },
     })
-    kbList.value = res.data?.data?.knowledge_bases || []
+    const allKBs = res.data?.data?.knowledge_bases || []
+    // 读取部门数据，找出当前用户所在部门关联的知识库
+    const username = userInfo.username
+    const deptRaw = localStorage.getItem('rag_departments')
+    const depts = deptRaw ? JSON.parse(deptRaw) : []
+    // 找出包含当前用户的部门
+    const userDepts = depts.filter(d => (d.memberUsernames || []).includes(username))
+    if (userDepts.length === 0) {
+      // 不在任何部门：显示全部（或可改为空列表，视业务需求）
+      kbList.value = allKBs
+    } else {
+      // 收集所有部门关联的 kbId
+      const allowedKbIds = new Set()
+      for (const d of userDepts) {
+        for (const id of (d.kbIds || [])) allowedKbIds.add(id)
+      }
+      kbList.value = allKBs.filter(kb => allowedKbIds.has(kb.kb_id))
+    }
   } catch { kbList.value = [] }
 }
 

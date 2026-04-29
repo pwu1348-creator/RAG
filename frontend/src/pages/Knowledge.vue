@@ -65,6 +65,11 @@
                           <path d="M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5M12,17C9.33,17 7,14.67 7,12C7,9.33 9.33,7 12,7C14.67,7 17,9.33 17,12C17,14.67 14.67,17 12,17M12,9C10.34,9 9,10.34 9,12C9,13.66 10.34,15 12,15C13.66,15 15,13.66 15,12C15,10.34 13.66,9 12,9Z"/>
                         </svg>
                       </button>
+                      <button class="action-btn dept" @click="openLinkDeptModal(kb)" title="关联部门">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M17,15H7V13H17M17,11H7V9H17M19,3H14.82C14.4,1.84 13.3,1 12,1C10.7,1 9.6,1.84 9.18,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M12,3A1,1 0 0,1 13,4A1,1 0 0,1 12,5A1,1 0 0,1 11,4A1,1 0 0,1 12,3M19,19H5V5H19V19Z"/>
+                        </svg>
+                      </button>
                       <button class="action-btn delete" @click="handleDeleteKB(kb.id)" title="删除">
                         <svg viewBox="0 0 24 24" fill="currentColor">
                           <path d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/>
@@ -288,6 +293,50 @@
           {{ notification.message }}
         </div>
       </Transition>
+    </Teleport>
+
+    <!-- 关联部门弹窗 -->
+    <Teleport to="body">
+      <div v-if="showLinkDeptModal" class="modal-overlay" @click.self="showLinkDeptModal = false">
+        <Transition name="modal-slide">
+          <div class="modal-content" v-if="showLinkDeptModal">
+            <div class="modal-header">
+              <h3>关联部门 - {{ linkDeptKB?.name }}</h3>
+              <button class="close-btn" @click="showLinkDeptModal = false">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/></svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px;">勾选后，该部门下所有成员可在用户界面使用此知识库进行问答。</p>
+              <div v-if="allDepartments.length > 0">
+                <div
+                  v-for="dept in allDepartments" :key="dept.id"
+                  class="dept-check-item"
+                  @click="toggleLinkDept(dept.id)"
+                >
+                  <div class="dept-check-icon">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17,15H7V13H17M17,11H7V9H17M19,3H14.82C14.4,1.84 13.3,1 12,1C10.7,1 9.6,1.84 9.18,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M12,3A1,1 0 0,1 13,4A1,1 0 0,1 12,5A1,1 0 0,1 11,4A1,1 0 0,1 12,3M19,19H5V5H19V19Z"/></svg>
+                  </div>
+                  <div class="dept-check-info">
+                    <div class="dept-check-name">{{ dept.name }}</div>
+                    <div class="dept-check-count">{{ (dept.memberUsernames||[]).length }} 人</div>
+                  </div>
+                  <div class="dept-check-box" :class="{ checked: linkDeptSelected.includes(dept.id) }">
+                    <svg v-if="linkDeptSelected.includes(dept.id)" viewBox="0 0 24 24" fill="currentColor"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg>
+                  </div>
+                </div>
+              </div>
+              <div v-else style="text-align:center;padding:24px;color:var(--gray-400);font-size:13px;">
+                暂无部门，请先在「部门管理」中创建部门
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-secondary" @click="showLinkDeptModal = false">取消</button>
+              <button class="btn btn-primary" @click="confirmLinkDept">保存关联</button>
+            </div>
+          </div>
+        </Transition>
+      </div>
     </Teleport>
   </div>
 </template>
@@ -598,6 +647,62 @@ const handleBatchParse = async () => {
     console.error('Failed to batch parse:', err)
     showNotification('批量解析失败', 'error')
   }
+}
+
+
+// ── 关联部门 ──────────────────────────────────────────
+const showLinkDeptModal = ref(false)
+const linkDeptKB = ref(null)
+const linkDeptSelected = ref([])
+const allDepartments = ref([])
+
+const loadDepartments = () => {
+  try {
+    const raw = localStorage.getItem('rag_departments')
+    allDepartments.value = raw ? JSON.parse(raw) : []
+  } catch { allDepartments.value = [] }
+}
+
+const openLinkDeptModal = (kb) => {
+  linkDeptKB.value = kb
+  loadDepartments()
+  // 读取当前已关联的部门
+  linkDeptSelected.value = allDepartments.value
+    .filter(d => (d.kbIds || []).includes(kb.id))
+    .map(d => d.id)
+  showLinkDeptModal.value = true
+}
+
+const toggleLinkDept = (deptId) => {
+  const idx = linkDeptSelected.value.indexOf(deptId)
+  if (idx === -1) linkDeptSelected.value.push(deptId)
+  else linkDeptSelected.value.splice(idx, 1)
+}
+
+const confirmLinkDept = () => {
+  const kbId = linkDeptKB.value?.id
+  const kbName = linkDeptKB.value?.name
+  if (!kbId) return
+  // 更新每个部门的 kbIds
+  for (const dept of allDepartments.value) {
+    const hasKb = (dept.kbIds || []).includes(kbId)
+    const shouldHave = linkDeptSelected.value.includes(dept.id)
+    if (shouldHave && !hasKb) {
+      if (!dept.kbIds) dept.kbIds = []
+      dept.kbIds.push(kbId)
+    } else if (!shouldHave && hasKb) {
+      dept.kbIds = dept.kbIds.filter(id => id !== kbId)
+    }
+  }
+  localStorage.setItem('rag_departments', JSON.stringify(allDepartments.value))
+  // 维护 kb_names 映射供部门页展示
+  try {
+    const kbMap = JSON.parse(localStorage.getItem('rag_kb_names') || '{}')
+    kbMap[kbId] = kbName
+    localStorage.setItem('rag_kb_names', JSON.stringify(kbMap))
+  } catch {}
+  showNotification('部门关联已保存', 'success')
+  showLinkDeptModal.value = false
 }
 
 onMounted(() => {
@@ -1489,4 +1594,41 @@ onMounted(() => {
   padding: 4px 12px;
   font-size: 12px;
 }
+
+.action-btn.dept {
+  background: rgba(127, 205, 205, 0.15);
+  color: var(--primary-dark);
+}
+.action-btn.dept:hover {
+  background: rgba(127, 205, 205, 0.3);
+}
+
+/* 关联部门弹窗 */
+.dept-check-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; border-radius: var(--radius);
+  cursor: pointer; transition: background 0.15s; margin-bottom: 6px;
+}
+.dept-check-item:hover { background: rgba(127,205,205,0.1); }
+.dept-check-icon {
+  width: 36px; height: 36px; border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, rgba(168,230,207,0.4), rgba(127,205,205,0.4));
+  display: flex; align-items: center; justify-content: center;
+  color: var(--primary-dark); flex-shrink: 0;
+}
+.dept-check-icon svg { width: 18px; height: 18px; }
+.dept-check-info { flex: 1; }
+.dept-check-name { font-size: 14px; font-weight: 500; color: var(--gray-800); }
+.dept-check-count { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
+.dept-check-box {
+  width: 22px; height: 22px; border-radius: 6px;
+  border: 2px solid var(--gray-300); display: flex;
+  align-items: center; justify-content: center; flex-shrink: 0;
+  transition: all 0.15s;
+}
+.dept-check-box.checked {
+  background: var(--primary); border-color: var(--primary);
+}
+.dept-check-box svg { width: 14px; height: 14px; color: white; }
+
 </style>

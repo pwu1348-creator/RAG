@@ -13,12 +13,21 @@
     <div class="form-card">
       <form @submit.prevent="handleSubmit">
         <div class="form-group">
-          <label>用户名 <span class="required">*</span></label>
+          <label>账号 <span class="required">*</span></label>
           <input
             type="text"
             v-model="form.username"
-            placeholder="请输入用户名"
+            placeholder="请输入登录账号"
             required
+          />
+        </div>
+
+        <div class="form-group">
+          <label>真实姓名</label>
+          <input
+            type="text"
+            v-model="form.real_name"
+            placeholder="请输入真实姓名"
           />
         </div>
 
@@ -94,6 +103,7 @@ const departments = ref([])
 
 const form = reactive({
   username: '',
+  real_name: '',
   password: '',
   phone: '',
   email: '',
@@ -112,7 +122,7 @@ const loadDepartments = () => {
 
 const handleSubmit = async () => {
   if (!form.username || !form.password) {
-    alert('请填写用户名和密码')
+    alert('请填写账号和密码')
     return
   }
 
@@ -120,6 +130,7 @@ const handleSubmit = async () => {
   try {
     await adminApi.createUser({
       username: form.username,
+      real_name: form.real_name || undefined,
       password: form.password,
       phone: form.phone || undefined,
       email: form.email || undefined,
