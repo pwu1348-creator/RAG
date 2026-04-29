@@ -1,122 +1,160 @@
 /**
- * QA Service API - 问答检索服务 (端口 8002)
+ * 问答检索服务 API — 对接 search_and_ask 后端 (端口 8002)
+ *
+ * Vite 代理: /api/qa → http://localhost:8002, 路径重写 /api/qa → /api/v1
+ *
+ * 后端路由前缀: /api/v1/search
+ *   POST /search          → 纯检索
+ *   POST /ask             → 问答（非流式）
+ *   POST /ask/stream      → 问答（SSE 流式）
+ *   POST /writechat       → 撰写模式（非流式）
+ *   POST /writechat/stream→ 撰写模式（SSE 流式）
+ *   POST /index/kb/{id}   → 重索知识库
  */
 
 import axios from 'axios'
 
-// 创建 qa 专用 axios 实例
+// ---------------------------------------------------------------------------
+// axios 实例
+// ---------------------------------------------------------------------------
+
 const qaApi = axios.create({
-  baseURL: '/api/qa',
-  timeout: 60000, // 1分钟，问答可能需要较长时间
-  headers: {
-    'Content-Type': 'application/json'
-  }
+  baseURL: '/api/qa',          // → proxy → http://localhost:8002/api/v1
+  timeout: 120000,             // 问答可能较慢，设 2 分钟
+  headers: { 'Content-Type': 'application/json' },
 })
 
-// 请求拦截器
-qaApi.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  (error) => Promise.reject(error)
+qaApi.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
+qaApi.interceptors.response.use(
+  (res) => res.data,
+  (err) => Promise.reject(err),
 )
 
-// 响应拦截器
-qaApi.interceptors.response.use(
-  (response) => response.data,
-  (error) => Promise.reject(error)
-)
+// ---------------------------------------------------------------------------
+// 检索（不调 LLM）
+// ---------------------------------------------------------------------------
 
 /**
- * 单轮问答
- * @param {Object} data
- * @param {string} data.question - 问题
- * @param {string[]} data.knowledgeBaseIds - 知识库ID列表
- * @param {string} data.conversationId - 对话ID（可选）
- * @param {number} data.topK - 检索数量
+ * 纯检索：返回父块内容，不生成回答
  */
-export function askQuestion(data) {
-  return qaApi.post('/qa/ask', data)
+export function searchChunks({ query, knowledge_base_id, top_k = 10, use_rerank = true }) {
+  return qaApi.post('/search/search', { query, knowledge_base_id, top_k, use_rerank })
 }
 
+// ---------------------------------------------------------------------------
+// 非流式问答
+// ---------------------------------------------------------------------------
+
 /**
- * 流式问答
- * @param {Object} data
- * @param {string} data.question - 问题
- * @param {string[]} data.knowledgeBaseIds - 知识库ID列表
+ * 标准问答（非流式）
+ * @returns {{ answer, citations, search_results, timestamp }}
  */
-export function streamAsk(data) {
-  return fetch('/api/qa/qa/stream', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-    },
-    body: JSON.stringify(data)
+export function ask({ query, knowledge_base_id, top_k = 10, use_rerank = true, chat_history = null }) {
+  return qaApi.post('/search/ask', {
+    query,
+    knowledge_base_id,
+    top_k,
+    use_rerank,
+    chat_history: chat_history?.slice(-10) ?? null,
   })
 }
 
-/**
- * 创建新对话
- * @param {string} title - 对话标题
- */
-export function createConversation(title = '新对话') {
-  return qaApi.post('/chat/conversations', null, { params: { title } })
-}
+// ---------------------------------------------------------------------------
+// 流式问答（核心接口）
+// ---------------------------------------------------------------------------
 
 /**
- * 获取对话列表
+ * 流式问答（SSE）— 返回 fetch Response 供 ReadableStream 消费
+ *
+ * 用法:
+ *   const resp = await streamAsk({ query, knowledge_base_id, ... })
+ *   const reader = resp.body.getReader()
+ *   // 逐块读取 SSE 事件
+ *
+ * SSE 格式:
+ *   data: {token}
+ *   ...
+ *   data: <!--RAG_META {...} RAG_META-->
  */
-export function getConversationList() {
-  return qaApi.get('/chat/conversations')
+export function streamAsk({
+  query,
+  knowledge_base_id,
+  top_k = 10,
+  use_rerank = true,
+  chat_history = null,
+  signal = null,
+}) {
+  const token = localStorage.getItem('token') || ''
+  return fetch('/api/qa/search/ask/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      query,
+      knowledge_base_id,
+      top_k,
+      use_rerank,
+      chat_history: chat_history?.slice(-10) ?? null,
+    }),
+    ...(signal ? { signal } : {}),
+  })
 }
 
-/**
- * 发送消息
- * @param {string} conversationId - 对话ID
- * @param {Object} data
- * @param {string} data.message - 消息内容
- * @param {string[]} data.knowledgeBaseIds - 知识库ID列表
- */
-export function sendMessage(conversationId, data) {
-  return qaApi.post(`/chat/conversations/${conversationId}/messages`, data)
+// ---------------------------------------------------------------------------
+// 撰写模式
+// ---------------------------------------------------------------------------
+
+/** 撰写模式（非流式） */
+export function writeChat({ query, knowledge_base_id, top_k = 10, use_rerank = true }) {
+  return qaApi.post('/search/writechat', { query, knowledge_base_id, top_k, use_rerank })
 }
 
-/**
- * 知识库检索
- * @param {Object} data
- * @param {string} data.query - 查询文本
- * @param {string[]} data.knowledgeBaseIds - 知识库ID列表
- * @param {number} data.topK - 返回数量
- */
-export function searchKnowledgeBase(data) {
-  return qaApi.post('/search/', data)
+/** 撰写模式（流式） */
+export function streamWriteChat({
+  query,
+  knowledge_base_id,
+  top_k = 10,
+  use_rerank = true,
+}) {
+  const token = localStorage.getItem('token') || ''
+  return fetch('/api/qa/search/writechat/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ query, knowledge_base_id, top_k, use_rerank }),
+  })
 }
 
-/**
- * 获取知识库列表
- */
-export function getKnowledgeBaseList() {
-  return qaApi.get('/knowledge-base/')
+// ---------------------------------------------------------------------------
+// 索引管理
+// ---------------------------------------------------------------------------
+
+/** 重索整个知识库 */
+export function reindexKB(kbId) {
+  return qaApi.post(`/search/index/kb/${kbId}`)
 }
 
-/**
- * 获取知识库状态
- * @param {string} kbId - 知识库ID
- */
-export function getKnowledgeBaseStatus(kbId) {
-  return qaApi.get(`/knowledge-base/${kbId}/status`)
+/** 重索单个文档 */
+export function reindexDoc(kbId, docId) {
+  return qaApi.post(`/search/index/doc/${kbId}/${docId}`)
 }
 
-/**
- * 健康检查
- */
+// ---------------------------------------------------------------------------
+// 辅助
+// ---------------------------------------------------------------------------
+
+/** 健康检查 */
 export function healthCheck() {
-  return qaApi.get('/health')
+  return qaApi.get('/search/health')
 }
 
 export default qaApi

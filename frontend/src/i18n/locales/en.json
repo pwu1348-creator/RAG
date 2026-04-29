@@ -27,7 +27,8 @@
     "settings": "Settings",
     "userManagement": "User Management",
     "adminDashboard": "Admin Dashboard",
-    "logout": "Logout"
+    "logout": "Logout",
+    "department": "Departments"
   },
   "auth": {
     "login": "Login",

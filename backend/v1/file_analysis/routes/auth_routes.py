@@ -69,7 +69,6 @@ async def logout(request: Request):
 @router.post("/admin/register")
 async def admin_register(request: Request, register_data: AdminRegisterRequest):
     result = admin_service.create_admin(
-        creator_admin_id="system",
         username=register_data.username,
         password=register_data.password,
         email=register_data.email,

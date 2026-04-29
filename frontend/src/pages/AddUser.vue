@@ -13,59 +13,63 @@
     <div class="form-card">
       <form @submit.prevent="handleSubmit">
         <div class="form-group">
-          <label>用户名 *</label>
-          <input 
-            type="text" 
-            v-model="form.username" 
-            placeholder="请输入用户名" 
+          <label>用户名 <span class="required">*</span></label>
+          <input
+            type="text"
+            v-model="form.username"
+            placeholder="请输入用户名"
             required
           />
         </div>
 
         <div class="form-group">
-          <label>密码 *</label>
-          <input 
-            type="password" 
-            v-model="form.password" 
-            placeholder="请输入密码" 
+          <label>密码 <span class="required">*</span></label>
+          <input
+            type="password"
+            v-model="form.password"
+            placeholder="请输入密码"
             required
-          />
-        </div>
-
-        <div class="form-group">
-          <label>邮箱</label>
-          <input 
-            type="email" 
-            v-model="form.email" 
-            placeholder="请输入邮箱"
-          />
-        </div>
-
-        <div class="form-group">
-          <label>真实姓名</label>
-          <input 
-            type="text" 
-            v-model="form.real_name" 
-            placeholder="请输入真实姓名"
           />
         </div>
 
         <div class="form-group">
           <label>手机号</label>
-          <input 
-            type="text" 
-            v-model="form.phone" 
+          <input
+            type="text"
+            v-model="form.phone"
             placeholder="请输入手机号"
           />
         </div>
 
         <div class="form-group">
-          <label>部门</label>
-          <input 
-            type="text" 
-            v-model="form.department" 
-            placeholder="请输入部门"
+          <label>邮箱</label>
+          <input
+            type="email"
+            v-model="form.email"
+            placeholder="请输入邮箱"
           />
+        </div>
+
+        <div class="form-group">
+          <label>部门</label>
+          <div class="select-wrapper">
+            <select v-model="form.department" class="select">
+              <option value="">-- 请选择部门 --</option>
+              <option
+                v-for="dept in departments"
+                :key="dept.id"
+                :value="dept.name"
+              >{{ dept.name }}</option>
+            </select>
+            <svg class="select-arrow" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M7,10L12,15L17,10H7Z"/>
+            </svg>
+          </div>
+          <div class="dept-hint" v-if="departments.length === 0">
+            暂无部门，请先前往
+            <router-link to="/departments" class="dept-link">部门管理</router-link>
+            创建部门
+          </div>
         </div>
 
         <div class="form-actions">
@@ -80,21 +84,31 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminApi } from '@/api'
 
 const router = useRouter()
 const submitting = ref(false)
+const departments = ref([])
 
 const form = reactive({
   username: '',
   password: '',
-  email: '',
-  real_name: '',
   phone: '',
+  email: '',
   department: ''
 })
+
+// 从 localStorage 读取部门列表
+const loadDepartments = () => {
+  try {
+    const raw = localStorage.getItem('rag_departments')
+    departments.value = raw ? JSON.parse(raw) : []
+  } catch {
+    departments.value = []
+  }
+}
 
 const handleSubmit = async () => {
   if (!form.username || !form.password) {
@@ -107,9 +121,8 @@ const handleSubmit = async () => {
     await adminApi.createUser({
       username: form.username,
       password: form.password,
-      email: form.email || undefined,
-      real_name: form.real_name || undefined,
       phone: form.phone || undefined,
+      email: form.email || undefined,
       department: form.department || undefined
     })
     alert('用户创建成功')
@@ -121,6 +134,8 @@ const handleSubmit = async () => {
     submitting.value = false
   }
 }
+
+onMounted(loadDepartments)
 </script>
 
 <style scoped>
@@ -176,6 +191,10 @@ const handleSubmit = async () => {
   margin-bottom: 8px;
 }
 
+.required {
+  color: #ef4444;
+}
+
 .form-group input {
   width: 100%;
   padding: 12px 16px;
@@ -184,10 +203,62 @@ const handleSubmit = async () => {
   font-size: 14px;
   outline: none;
   transition: border-color 0.2s;
+  box-sizing: border-box;
 }
 
 .form-group input:focus {
   border-color: var(--primary);
+}
+
+/* 下拉选择 */
+.select-wrapper {
+  position: relative;
+}
+
+.select {
+  width: 100%;
+  padding: 12px 40px 12px 16px;
+  border: 2px solid var(--gray-200);
+  border-radius: var(--radius);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+  background: white;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  color: var(--gray-800);
+}
+
+.select:focus {
+  border-color: var(--primary);
+}
+
+.select-arrow {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  color: var(--gray-400);
+  pointer-events: none;
+}
+
+.dept-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--gray-400);
+}
+
+.dept-link {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.dept-link:hover {
+  text-decoration: underline;
 }
 
 .form-actions {

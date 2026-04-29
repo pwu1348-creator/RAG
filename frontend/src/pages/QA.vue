@@ -1,374 +1,531 @@
 <template>
   <div class="qa-page">
     <div class="qa-container">
-      <!-- 左侧：问答区域 -->
+      <!-- ================================================================ -->
+      <!-- 左侧：对话区域 -->
+      <!-- ================================================================ -->
       <div class="chat-section">
+        <!-- 顶部：知识库选择 + 操作 -->
         <div class="chat-header">
           <h1 class="page-title">
-            <span class="title-icon">💬</span>
+            <span class="title-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,12 11,11.75 11,15H13C13,12.75 16,12.5 16,10A4,4 0 0,0 12,6Z"/></svg>
+            </span>
             智能问答
           </h1>
+
           <div class="header-actions">
             <!-- 知识库选择器 -->
-            <div class="kb-selector-header">
-              <div class="kb-dropdown" :class="{ open: showKbDropdown }" @click="showKbDropdown = !showKbDropdown">
-                <div class="kb-selected">
-                  <svg class="kb-icon" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"/>
-                  </svg>
-                  <span v-if="selectedKBs.length === 0" class="placeholder">选择知识库</span>
-                  <span v-else-if="selectedKBs.length === 1" class="kb-name">{{ getKBName(selectedKBs[0]) }}</span>
-                  <span v-else class="kb-name">{{ selectedKBs.length }} 个知识库</span>
-                  <svg class="dropdown-arrow" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M7,10L12,15L17,10H7Z"/>
-                  </svg>
-                </div>
-                <div v-if="showKbDropdown" class="kb-options">
-                  <div class="kb-option" @click.stop="selectAllKBs">
-                    <input type="checkbox" :checked="isAllSelected" @click.stop/>
-                    <span>全选</span>
+            <div class="kb-selector" ref="kbDropdownRef">
+              <button class="kb-selector-btn" @click="showKbDropdown = !showKbDropdown">
+                <svg class="kb-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"/></svg>
+                <span v-if="!selectedKbId" class="placeholder">{{ kbList.length ? '选择知识库' : '加载中...' }}</span>
+                <span v-else class="kb-name">{{ selectedKbName }}</span>
+                <svg class="dropdown-arrow" :class="{ open: showKbDropdown }" viewBox="0 0 24 24" fill="currentColor"><path d="M7,10L12,15L17,10H7Z"/></svg>
+              </button>
+              <div v-if="showKbDropdown" class="kb-dropdown">
+                <div
+                  v-for="kb in kbList"
+                  :key="kb.kb_id"
+                  class="kb-option"
+                  :class="{ selected: selectedKbId === kb.kb_id }"
+                  @click="selectKB(kb)"
+                >
+                  <div class="kb-option-info">
+                    <span class="kb-option-name">{{ kb.name }}</span>
+                    <span class="kb-option-meta">{{ kb.doc_count ?? 0 }} 文档</span>
                   </div>
-                  <div class="kb-divider"></div>
-                  <div
-                    v-for="kb in knowledgeBases"
-                    :key="kb.id"
-                    class="kb-option"
-                    :class="{ selected: selectedKBs.includes(kb.id) }"
-                    @click.stop="toggleKB(kb.id)"
-                  >
-                    <input type="checkbox" :checked="selectedKBs.includes(kb.id)" @click.stop/>
-                    <div class="kb-option-info">
-                      <span class="kb-option-name">{{ kb.name }}</span>
-                      <span class="kb-option-count">{{ kb.docCount }} 文档</span>
-                    </div>
-                    <div v-if="kb.status === 'active'" class="kb-status active" title="正常"></div>
-                    <div v-else class="kb-status building" title="构建中"></div>
+                  <div v-if="selectedKbId === kb.kb_id" class="check-mark">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg>
                   </div>
                 </div>
+                <div v-if="kbList.length === 0" class="kb-empty">暂无可用知识库</div>
               </div>
             </div>
-            <button class="btn btn-ghost" @click="clearChat">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/>
-              </svg>
-              清空对话
+
+            <!-- 清空 -->
+            <button class="btn btn-ghost" @click="clearChat" :disabled="messages.length === 0">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/></svg>
+              清空
             </button>
           </div>
         </div>
 
-        <!-- 消息列表 -->
-        <div class="messages-container" ref="messagesContainer">
-          <div v-if="messages.length === 0" class="welcome-message">
+        <!-- 对话消息 -->
+        <div class="messages-container" ref="scrollRef">
+          <!-- 空状态 -->
+          <div v-if="messages.length === 0" class="welcome-state">
             <div class="welcome-icon">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,12 11,11.75 11,15H13C13,12.75 16,12.5 16,10A4,4 0 0,0 12,6Z"/>
-              </svg>
+              <svg viewBox="0 0 24 24" fill="currentColor" width="40" height="40"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,12 11,11.75 11,15H13C13,12.75 16,12.5 16,10A4,4 0 0,0 12,6Z"/></svg>
             </div>
             <h2>有什么可以帮助您的？</h2>
-            <p>基于 RAG 技术，我可以从知识库中为您检索精准答案</p>
+            <p>选择知识库后，基于 RAG 技术从文档中为您检索精准答案</p>
             <div class="quick-questions">
               <button
-                v-for="(q, index) in quickQuestions"
-                :key="index"
+                v-for="(q, i) in quickQuestions"
+                :key="i"
                 class="quick-btn"
-                @click="askQuickQuestion(q)"
-              >
-                {{ q }}
-              </button>
+                @click="askQuick(q)"
+              >{{ q }}</button>
             </div>
           </div>
 
+          <!-- 消息列表 -->
           <div
-            v-for="(msg, index) in messages"
-            :key="index"
-            class="message"
-            :class="msg.type"
+            v-for="(msg, i) in messages"
+            :key="i"
+            class="message-row"
+            :class="msg.role"
           >
-            <div class="message-avatar">
-              <div v-if="msg.type === 'user'" class="avatar user">我</div>
-              <div v-else class="avatar bot">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,12 11,11.75 11,15H13C13,12.75 16,12.5 16,10A4,4 0 0,0 12,6Z"/>
-                </svg>
+            <!-- 头像 -->
+            <div class="msg-avatar">
+              <div v-if="msg.role === 'user'" class="avatar user-avatar-icon">我</div>
+              <div v-else class="avatar bot-avatar-icon">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,12 11,11.75 11,15H13C13,12.75 16,12.5 16,10A4,4 0 0,0 12,6Z"/></svg>
               </div>
             </div>
-            <div class="message-content">
-              <div class="message-text" v-html="formatMessage(msg.content)"></div>
-              <div v-if="msg.sources && msg.sources.length > 0" class="message-sources">
+
+            <!-- 气泡 -->
+            <div class="msg-bubble">
+              <!-- 正文 -->
+              <div class="msg-text" v-html="formatContent(msg)"></div>
+
+              <!-- 加载动画 -->
+              <div v-if="msg.streaming" class="typing-cursor"></div>
+
+              <!-- 错误 -->
+              <div v-if="msg.error" class="msg-error">{{ msg.error }}</div>
+
+              <!-- 引用来源 -->
+              <div v-if="msg.sources && msg.sources.length" class="msg-sources">
                 <div class="sources-title">
-                  <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"/>
-                  </svg>
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"/></svg>
                   参考来源
                 </div>
                 <div class="sources-list">
                   <div
-                    v-for="(source, sIndex) in msg.sources"
-                    :key="sIndex"
-                    class="source-item"
+                    v-for="(src, si) in msg.sources"
+                    :key="si"
+                    class="source-chip"
                   >
-                    <span class="source-name">{{ source.name }}</span>
-                    <span class="source-score">{{ source.score }}%</span>
+                    <span class="source-doc">{{ src.doc_id?.slice(-8) || '--' }}</span>
+                    <span v-if="src.score" class="source-score">{{ (src.score * 100).toFixed(0) }}%</span>
                   </div>
                 </div>
               </div>
-              <span class="message-time">{{ msg.time }}</span>
+
+              <span class="msg-time">{{ formatTime(msg.time) }}</span>
             </div>
           </div>
 
-          <!-- 加载中 -->
-          <div v-if="isLoading" class="message bot loading">
-            <div class="message-avatar">
-              <div class="avatar bot">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,12 11,11.75 11,15H13C13,12.75 16,12.5 16,10A4,4 0 0,0 12,6Z"/>
-                </svg>
+          <!-- 思考中指示器 -->
+          <div v-if="isStreaming && currentAssistantMsg" class="message-row bot">
+            <div class="msg-avatar">
+              <div class="avatar bot-avatar-icon">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,12 11,11.75 11,15H13C13,12.75 16,12.5 16,10A4,4 0 0,0 12,6Z"/></svg>
               </div>
             </div>
-            <div class="message-content">
-              <div class="typing-indicator">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
+            <div class="msg-bubble">
+              <div class="typing-dots"><span></span><span></span><span></span></div>
             </div>
           </div>
         </div>
 
         <!-- 输入区域 -->
         <div class="input-section">
-          <div class="input-container">
+          <div class="input-wrapper" :class="{ disabled: !selectedKbId }">
             <textarea
-              v-model="inputMessage"
-              class="chat-input"
-              placeholder="输入您的问题..."
-              rows="1"
-              @keydown.enter.prevent="sendMessage"
-              @input="autoResize"
               ref="inputRef"
+              v-model="inputText"
+              class="chat-input"
+              :placeholder="selectedKbId ? '输入问题，Enter 发送' : '请先选择知识库'"
+              rows="1"
+              :disabled="!selectedKbId || isStreaming"
+              @keydown.enter.exact.prevent="sendMessage"
+              @input="autoResize"
             ></textarea>
             <button
               class="send-btn"
-              :class="{ active: inputMessage.trim() }"
+              :class="{ ready: inputText.trim() && selectedKbId && !isStreaming }"
               @click="sendMessage"
-              :disabled="!inputMessage.trim() || isLoading"
+              :disabled="!inputText.trim() || !selectedKbId || isStreaming"
             >
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M2,21L23,12L2,3V10L17,12L2,14V21Z"/>
-              </svg>
+              <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M2,21L23,12L2,3V10L17,12L2,14V21Z"/></svg>
             </button>
           </div>
-
-        <div class="input-tips">
-          <span>按 Enter 发送，Shift + Enter 换行</span>
-        </div>
+          <div class="input-hint">Enter 发送 · Shift+Enter 换行</div>
         </div>
       </div>
 
-      <!-- 右侧：知识库信息 -->
+      <!-- ================================================================ -->
+      <!-- 右侧：信息面板 -->
+      <!-- ================================================================ -->
       <div class="sidebar-section">
+        <!-- 当前知识库 -->
         <div class="info-card">
           <h3 class="card-title">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"/>
-            </svg>
-            知识库状态
+            <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"/></svg>
+            {{ selectedKbId ? selectedKbName : '知识库' }}
           </h3>
-          <div class="info-item">
-            <span class="info-label">文档总数</span>
-            <span class="info-value">567</span>
-          </div>
-          <div class="info-item">
-            <span class="info-label">索引状态</span>
-            <span class="info-value success">正常</span>
-          </div>
-          <div class="info-item">
-            <span class="info-label">最后更新</span>
-            <span class="info-value">2小时前</span>
-          </div>
+          <template v-if="selectedKbId">
+            <div class="info-row">
+              <span>文档数</span>
+              <span class="info-val">{{ selectedKbDocCount ?? '--' }}</span>
+            </div>
+            <div class="info-row">
+              <span>分块数</span>
+              <span class="info-val">{{ selectedKbChunks ?? '--' }}</span>
+            </div>
+            <div class="info-row">
+              <span>状态</span>
+              <span class="info-val ok">正常</span>
+            </div>
+          </template>
+          <template v-else>
+            <p class="info-hint">请在上方选择一个知识库开始提问</p>
+          </template>
         </div>
 
-        <div class="info-card">
+        <!-- 对话信息 -->
+        <div v-if="messages.length > 0" class="info-card">
           <h3 class="card-title">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/>
-            </svg>
-            检索设置
+            <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M20,2H4C2.9,2 2,2.9 2,4V22L6,18H20C21.1,18 22,17.1 22,16V4C22,2.9 21.1,2 20,2M20,16H5.2L4,17.2V4H20V16Z"/></svg>
+            对话信息
           </h3>
-          <div class="setting-item">
-            <label>检索模式</label>
-            <select class="setting-select">
-              <option>语义检索</option>
-              <option>关键词检索</option>
-              <option>混合检索</option>
-            </select>
+          <div class="info-row">
+            <span>问答轮次</span>
+            <span class="info-val">{{ Math.floor(messages.length / 2) }}</span>
           </div>
-          <div class="setting-item">
-            <label>返回结果数</label>
-            <input type="number" class="setting-input" value="5" min="1" max="20"/>
+          <div class="info-row">
+            <span>消息数</span>
+            <span class="info-val">{{ messages.length }}</span>
           </div>
-          <div class="setting-item">
-            <label>相似度阈值</label>
-            <input type="range" class="setting-slider" min="0" max="100" value="70"/>
-            <span class="slider-value">70%</span>
-          </div>
+          <button class="btn btn-ghost btn-small" @click="clearChat">清空对话记录</button>
         </div>
 
+        <!-- 提示 -->
         <div class="info-card">
           <h3 class="card-title">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M13.5,5.5C14.59,5.5 15.5,4.58 15.5,3.5C15.5,2.38 14.59,1.5 13.5,1.5C12.39,1.5 11.5,2.38 11.5,3.5C11.5,4.58 12.39,5.5 13.5,5.5M9.89,19.38L10.89,15L13,17V23H15V15.5L12.89,13.5L13.5,10.5C14.79,12 16.79,13 19,13V11C17.09,11 15.5,10 14.69,8.58L13.69,7C13.29,6.38 12.69,6 12,6C11.69,6 11.5,6.08 11.19,6.08L6,8.28V13H8V9.58L9.79,8.88L8.19,17L3.29,16L2.89,18L9.89,19.38Z"/>
-            </svg>
+            <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M13.5,5.5C14.59,5.5 15.5,4.58 15.5,3.5C15.5,2.38 14.59,1.5 13.5,1.5C12.39,1.5 11.5,2.38 11.5,3.5C11.5,4.58 12.39,5.5 13.5,5.5M9.89,19.38L10.89,15L13,17V23H15V15.5L12.89,13.5L13.5,10.5C14.79,12 16.79,13 19,13V11C17.09,11 15.5,10 14.69,8.58L13.69,7C13.29,6.38 12.69,6 12,6C11.69,6 11.5,6.08 11.19,6.08L6,8.28V13H8V9.58L9.79,8.88L8.19,17L3.29,16L2.89,18L9.89,19.38Z"/></svg>
             使用提示
           </h3>
           <ul class="tips-list">
             <li>提问越具体，答案越精准</li>
-            <li>可以询问文档中的具体内容</li>
-            <li>支持多轮对话，保持上下文</li>
+            <li>支持询问文档中的具体内容</li>
+            <li>回答会自动引用原文出处</li>
+            <li>支持多轮对话保持上下文</li>
           </ul>
+        </div>
+
+        <!-- 错误日志 -->
+        <div v-if="errorLog.length" class="info-card error-card">
+          <h3 class="card-title error-title">错误日志</h3>
+          <div v-for="(e, i) in errorLog" :key="i" class="error-line">{{ e }}</div>
+          <button class="btn btn-ghost btn-small" @click="errorLog = []">清除</button>
         </div>
       </div>
     </div>
   </div>
 </template>
 
+<!-- ================================================================== -->
 <script setup>
-import { ref, nextTick, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { knowledgeApi } from '../api/knowledge'
+import { streamAsk } from '../api/qa'
 
-const messages = ref([])
-const inputMessage = ref('')
-const isLoading = ref(false)
-const messagesContainer = ref(null)
-const inputRef = ref(null)
+// -----------------------------------------------------------------------
+// 知识库
+// -----------------------------------------------------------------------
+
+const kbList = ref([])
+const selectedKbId = ref('')
 const showKbDropdown = ref(false)
-const selectedKBs = ref([])
+const kbDropdownRef = ref(null)
 
-// 知识库列表
-const knowledgeBases = ref([
-  { id: 1, name: '产品文档库', docCount: 128, status: 'active' },
-  { id: 2, name: '技术规范库', docCount: 86, status: 'active' },
-  { id: 3, name: '培训资料库', docCount: 45, status: 'building' },
-  { id: 4, name: '项目文档库', docCount: 234, status: 'active' },
-])
-
-// 计算是否全选
-const isAllSelected = computed(() => {
-  return selectedKBs.value.length === knowledgeBases.value.length
+const selectedKbName = computed(() => {
+  const kb = kbList.value.find(k => k.kb_id === selectedKbId.value)
+  return kb?.name || ''
+})
+const selectedKbDocCount = computed(() => {
+  const kb = kbList.value.find(k => k.kb_id === selectedKbId.value)
+  return kb?.doc_count
+})
+const selectedKbChunks = computed(() => {
+  const kb = kbList.value.find(k => k.kb_id === selectedKbId.value)
+  return kb?.total_chunks
 })
 
-// 获取知识库名称
-const getKBName = (id) => {
-  const kb = knowledgeBases.value.find(k => k.id === id)
-  return kb ? kb.name : ''
-}
+async function loadKBList() {
+  try {
+    const res = await knowledgeApi.getList({ page: 1, size: 100 })
+    kbList.value = res?.data?.knowledge_bases || res?.knowledge_bases || []
 
-// 切换知识库选择
-const toggleKB = (id) => {
-  const index = selectedKBs.value.indexOf(id)
-  if (index > -1) {
-    selectedKBs.value.splice(index, 1)
-  } else {
-    selectedKBs.value.push(id)
+    // 恢复上次选择
+    const lastKb = localStorage.getItem('qa_last_kb')
+    if (lastKb && kbList.value.some(k => k.kb_id === lastKb)) {
+      selectedKbId.value = lastKb
+    } else if (kbList.value.length > 0) {
+      selectedKbId.value = kbList.value[0].kb_id
+    }
+  } catch (e) {
+    console.warn('[QA] 加载知识库列表失败:', e.message)
   }
 }
 
-// 全选/取消全选
-const selectAllKBs = () => {
-  if (isAllSelected.value) {
-    selectedKBs.value = []
-  } else {
-    selectedKBs.value = knowledgeBases.value.map(kb => kb.id)
-  }
+function selectKB(kb) {
+  selectedKbId.value = kb.kb_id
+  localStorage.setItem('qa_last_kb', kb.kb_id)
+  showKbDropdown.value = false
 }
 
-// 点击外部关闭下拉框
-const handleClickOutside = (e) => {
-  if (!e.target.closest('.kb-dropdown')) {
+// 点击外部关闭下拉
+function handleOutsideClick(e) {
+  if (kbDropdownRef.value && !kbDropdownRef.value.contains(e.target)) {
     showKbDropdown.value = false
   }
 }
 
-// 添加事件监听
-onMounted(() => {
-  document.addEventListener('click', handleClickOutside)
-})
+// -----------------------------------------------------------------------
+// 消息与对话
+// -----------------------------------------------------------------------
 
-onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside)
-})
+const STORAGE_KEY = 'rag_qa_messages'
+
+const messages = ref(loadMessages())
+const inputText = ref('')
+const isStreaming = ref(false)
+const currentAssistantMsg = ref(null)   // 流式进行中的消息对象引用
+const abortController = ref(null)
+const errorLog = ref([])
+const inputRef = ref(null)
+const scrollRef = ref(null)
 
 const quickQuestions = [
-  '系统的主要功能有哪些？',
-  '如何上传文档？',
-  '支持哪些文件格式？',
-  '如何提高检索准确率？',
+  '这份文档的主要内容是什么？',
+  '请总结一下关键要点',
+  '有哪些重要的数据或指标？',
+  '请列出文档中的主要章节',
 ]
 
-const formatMessage = (content) => {
-  // 简单的 Markdown 格式转换
-  return content
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br>')
+function loadMessages() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+  } catch { return [] }
 }
 
-const autoResize = () => {
-  const textarea = inputRef.value
-  textarea.style.height = 'auto'
-  textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px'
+function saveMessages() {
+  try {
+    // 只保留最近 100 条
+    const toSave = messages.value.slice(-100)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave))
+  } catch { /* ignore */ }
 }
 
-const scrollToBottom = () => {
-  nextTick(() => {
-    if (messagesContainer.value) {
-      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-    }
-  })
+function clearChat() {
+  messages.value = []
+  localStorage.removeItem(STORAGE_KEY)
 }
 
-const sendMessage = () => {
-  const message = inputMessage.value.trim()
-  if (!message || isLoading.value) return
+// -----------------------------------------------------------------------
+// 发送消息 & 流式接收
+// -----------------------------------------------------------------------
+
+async function sendMessage() {
+  const text = inputText.value.trim()
+  if (!text || !selectedKbId.value || isStreaming.value) return
 
   // 添加用户消息
-  messages.value.push({
-    type: 'user',
-    content: message,
-    time: new Date().toLocaleTimeString()
-  })
+  const userMsg = { role: 'user', content: text, time: Date.now() }
+  messages.value.push(userMsg)
+  inputText.value = ''
+  if (inputRef.value) inputRef.value.style.height = 'auto'
+  saveMessages()
+  await scrollBottom()
 
-  inputMessage.value = ''
-  inputRef.value.style.height = 'auto'
-  scrollToBottom()
+  // 创建 assistant 占位消息
+  const assistantMsg = { role: 'assistant', content: '', time: Date.now(), streaming: true, sources: [] }
+  messages.value.push(assistantMsg)
+  currentAssistantMsg.value = assistantMsg
 
-  // 模拟 AI 回复
-  isLoading.value = true
-  scrollToBottom()
+  // 构建聊天历史
+  const history = buildHistory()
 
-  setTimeout(() => {
-    messages.value.push({
-      type: 'bot',
-      content: `根据知识库检索，我为您找到以下答案：\n\n**关于您的问题**：\n${message}\n\n**检索结果**：\n根据相关文档，这是一个基于 RAG（检索增强生成）技术的智能问答系统。系统通过以下步骤为您提供答案：\n\n1. **文档解析**：自动解析上传的各类文档\n2. **向量化存储**：将文档内容转换为向量并存储\n3. **语义检索**：根据您的问题检索相关内容\n4. **智能生成**：结合检索内容生成精准回答`,
-      time: new Date().toLocaleTimeString(),
-      sources: [
-        { name: '产品手册.pdf', score: 95 },
-        { name: '技术文档.docx', score: 88 },
-      ]
+  // 开始流式
+  isStreaming.value = true
+  const controller = new AbortController()
+  abortController.value = controller
+
+  try {
+    const response = await streamAsk({
+      query: text,
+      knowledge_base_id: selectedKbId.value,
+      top_k: 5,
+      use_rerank: true,
+      chat_history: history,
+      signal: controller.signal,
     })
-    isLoading.value = false
-    scrollToBottom()
-  }, 2000)
+
+    if (!response.ok) {
+      throw new Error(`服务器错误 (${response.status})`)
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let fullText = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed.startsWith('data: ')) continue
+        const payload = trimmed.slice(6)
+        fullText += payload
+      }
+
+      // 从累积全文中提取 RAG_META（可能跨多个 SSE 块）
+      const metaMatch = fullText.match(/<!--RAG_META\s+([\s\S]*?)\s+RAG_META-->/)
+      if (metaMatch) {
+        try {
+          const meta = JSON.parse(metaMatch[1])
+          assistantMsg.sources = meta.citations || []
+          assistantMsg.searchResults = meta.search_results || []
+        } catch { /* parse error */ }
+        // 去掉 RAG_META 注释，只显示正文
+        assistantMsg.content = fullText.replace(/\n*<!--RAG_META[\s\S]*?RAG_META-->/, '').trimEnd()
+      } else {
+        assistantMsg.content = fullText
+      }
+
+      await nextTick()
+      await scrollBottom()
+    }
+
+    // 最终再做一次 RAG_META 清理（处理最后一批数据）
+    const finalMetaMatch = fullText.match(/<!--RAG_META\s+([\s\S]*?)\s+RAG_META-->/)
+    if (finalMetaMatch) {
+      try {
+        const meta = JSON.parse(finalMetaMatch[1])
+        assistantMsg.sources = meta.citations || []
+        assistantMsg.searchResults = meta.search_results || []
+      } catch { /* parse error */ }
+      assistantMsg.content = fullText.replace(/\n*<!--RAG_META[\s\S]*?RAG_META-->/, '').trimEnd()
+    }
+
+    assistantMsg.streaming = false
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      assistantMsg.content += '\n\n*[已中断]*'
+    } else {
+      assistantMsg.error = e.message || '请求失败'
+      errorLog.value.unshift(`[${new Date().toLocaleTimeString()}] ${assistantMsg.error}`)
+      if (errorLog.value.length > 20) errorLog.value.pop()
+    }
+    assistantMsg.streaming = false
+  } finally {
+    isStreaming.value = false
+    currentAssistantMsg.value = null
+    abortController.value = null
+    saveMessages()
+    await scrollBottom()
+  }
 }
 
-const askQuickQuestion = (question) => {
-  inputMessage.value = question
+function buildHistory() {
+  // 从当前会话中提取最近 6 轮问答作为上下文
+  const history = []
+  for (const msg of messages.value) {
+    if (msg.streaming || msg.error) continue
+    if (msg.role === 'user') {
+      history.push({ role: 'user', content: msg.content })
+    } else if (msg.role === 'assistant') {
+      history.push({ role: 'assistant', content: msg.content })
+    }
+  }
+  // 不包含最后一条（正在生成的）
+  if (history.length && history[history.length - 1].role === 'assistant') {
+    history.pop()
+  }
+  return history.slice(-12)
+}
+
+function askQuick(question) {
+  inputText.value = question
   sendMessage()
 }
 
-const clearChat = () => {
-  messages.value = []
+// 中断流式
+function cancelStream() {
+  if (abortController.value) {
+    abortController.value.abort()
+  }
 }
+
+// -----------------------------------------------------------------------
+// 格式化
+// -----------------------------------------------------------------------
+
+function formatContent(msg) {
+  if (!msg.content) return ''
+  let t = msg.content
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  // Markdown: **bold**
+  t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  // Markdown: `code`
+  t = t.replace(/`(.+?)`/g, '<code>$1</code>')
+  // 换行
+  t = t.replace(/\n/g, '<br>')
+  return t
+}
+
+function formatTime(ts) {
+  const d = new Date(ts)
+  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+}
+
+// -----------------------------------------------------------------------
+// 滚动 & 尺寸
+// -----------------------------------------------------------------------
+
+async function scrollBottom() {
+  await nextTick()
+  if (scrollRef.value) {
+    scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+  }
+}
+
+function autoResize() {
+  const el = inputRef.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, 150) + 'px'
+}
+
+// -----------------------------------------------------------------------
+// 生命周期
+// -----------------------------------------------------------------------
+
+onMounted(() => {
+  loadKBList()
+  document.addEventListener('click', handleOutsideClick)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleOutsideClick)
+  cancelStream()
+})
 </script>
 
+<!-- ================================================================== -->
 <style scoped>
 .qa-page {
   height: 100vh;
@@ -380,25 +537,28 @@ const clearChat = () => {
   height: 100%;
 }
 
-/* 聊天区域 */
+/* ---------- 左侧聊天 ---------- */
 .chat-section {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: rgba(255, 255, 255, 0.6);
+  background: rgba(255,255,255,0.55);
   backdrop-filter: blur(10px);
+  min-width: 0;
 }
 
+/* --- 头部 --- */
 .chat-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 32px;
-  border-bottom: 1px solid rgba(168, 230, 207, 0.3);
+  padding: 18px 28px;
+  border-bottom: 1px solid rgba(168,230,207,0.3);
+  flex-shrink: 0;
 }
 
 .page-title {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
   color: var(--gray-800);
   display: flex;
@@ -407,621 +567,406 @@ const clearChat = () => {
 }
 
 .title-icon {
-  font-size: 26px;
+  width: 28px;
+  height: 28px;
+  color: var(--primary-dark);
 }
 
-.header-actions .btn svg {
-  width: 18px;
-  height: 18px;
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-/* 消息容器 */
+/* --- KB 选择器 --- */
+.kb-selector { position: relative; }
+
+.kb-selector-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(255,255,255,0.9);
+  border: 1px solid rgba(168,230,207,0.5);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--gray-700);
+  transition: all var(--transition);
+  min-width: 150px;
+}
+
+.kb-selector-btn:hover {
+  border-color: var(--primary);
+  background: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.kb-selector-btn .placeholder { color: var(--gray-400); }
+.kb-selector-btn .kb-name { font-weight: 500; color: var(--gray-800); }
+
+.kb-icon { width: 16px; height: 16px; color: var(--primary-dark); flex-shrink: 0; }
+
+.dropdown-arrow {
+  width: 14px; height: 14px; color: var(--gray-400);
+  transition: transform 0.2s;
+}
+.dropdown-arrow.open { transform: rotate(180deg); }
+
+.kb-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 260px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid rgba(168,230,207,0.4);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+
+.kb-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.kb-option:hover { background: rgba(168,230,207,0.12); }
+.kb-option.selected { background: rgba(168,230,207,0.2); }
+
+.kb-option-info { display: flex; flex-direction: column; gap: 2px; }
+.kb-option-name { font-size: 14px; color: var(--gray-800); font-weight: 500; }
+.kb-option-meta { font-size: 11px; color: var(--gray-500); }
+
+.check-mark { width: 18px; height: 18px; color: var(--primary-dark); }
+.kb-empty { padding: 20px; text-align: center; color: var(--gray-400); font-size: 13px; }
+
+/* --- 消息区 --- */
 .messages-container {
   flex: 1;
   overflow-y: auto;
-  padding: 32px;
+  padding: 28px;
 }
 
-.welcome-message {
+/* 欢迎状态 */
+.welcome-state {
   text-align: center;
   padding: 60px 20px;
 }
 
 .welcome-icon {
-  width: 80px;
-  height: 80px;
-  background: linear-gradient(135deg, rgba(168, 230, 207, 0.3) 0%, rgba(136, 216, 176, 0.3) 100%);
+  width: 72px; height: 72px;
+  background: linear-gradient(135deg, rgba(168,230,207,0.3), rgba(136,216,176,0.3));
   border-radius: var(--radius-full);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 24px;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 20px;
   color: var(--primary-dark);
 }
 
-.welcome-icon svg {
-  width: 40px;
-  height: 40px;
-}
-
-.welcome-message h2 {
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--gray-800);
-  margin-bottom: 8px;
-}
-
-.welcome-message p {
-  font-size: 14px;
-  color: var(--gray-500);
-  margin-bottom: 32px;
-}
+.welcome-state h2 { font-size: 22px; color: var(--gray-800); margin-bottom: 8px; }
+.welcome-state p { font-size: 14px; color: var(--gray-500); margin-bottom: 28px; }
 
 .quick-questions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 12px;
-  max-width: 600px;
-  margin: 0 auto;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;
+  max-width: 520px; margin: 0 auto;
 }
 
 .quick-btn {
-  padding: 10px 20px;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(168, 230, 207, 0.4);
+  padding: 9px 18px;
+  background: rgba(255,255,255,0.9);
+  border: 1px solid rgba(168,230,207,0.4);
   border-radius: var(--radius-full);
-  font-size: 14px;
-  color: var(--gray-600);
+  font-size: 13px; color: var(--gray-600);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all var(--transition);
 }
 
 .quick-btn:hover {
   background: var(--primary-light);
   border-color: var(--primary);
   color: var(--primary-dark);
-  transform: translateY(-2px);
+  transform: translateY(-1px);
 }
 
-/* 消息样式 */
-.message {
+/* 消息行 */
+.message-row {
   display: flex;
-  gap: 16px;
-  margin-bottom: 24px;
-  animation: fadeIn 0.3s ease;
+  gap: 14px;
+  margin-bottom: 22px;
+  animation: fadeIn 0.25s ease;
 }
 
-.message.user {
-  flex-direction: row-reverse;
-}
+.message-row.user { flex-direction: row-reverse; }
 
-.message-avatar {
-  flex-shrink: 0;
-}
+.msg-avatar { flex-shrink: 0; }
 
 .avatar {
-  width: 40px;
-  height: 40px;
+  width: 38px; height: 38px;
   border-radius: var(--radius-full);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600;
 }
 
-.avatar.user {
-  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+.user-avatar-icon {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
   color: white;
 }
 
-.avatar.bot {
-  background: linear-gradient(135deg, var(--earth) 0%, var(--earth-dark) 100%);
+.bot-avatar-icon {
+  background: linear-gradient(135deg, var(--earth), var(--earth-dark));
   color: white;
 }
 
-.avatar.bot svg {
-  width: 24px;
-  height: 24px;
-}
-
-.message-content {
-  max-width: 70%;
-  padding: 16px 20px;
+.msg-bubble {
+  max-width: 72%;
+  padding: 14px 18px;
   border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(255,255,255,0.95);
   box-shadow: var(--shadow-sm);
-}
-
-.message.user .message-content {
-  background: linear-gradient(135deg, var(--primary-light) 0%, rgba(136, 216, 176, 0.3) 100%);
-}
-
-.message-text {
-  font-size: 15px;
   line-height: 1.7;
-  color: var(--gray-800);
 }
 
-.message-time {
+.message-row.user .msg-bubble {
+  background: linear-gradient(135deg, var(--primary-light), rgba(136,216,176,0.3));
+}
+
+.msg-text {
+  font-size: 14px;
+  color: var(--gray-800);
+  word-break: break-word;
+}
+
+.msg-text :deep(code) {
+  background: rgba(127,205,205,0.15);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.msg-text :deep(strong) {
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.msg-error {
+  color: var(--error);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.msg-time {
   display: block;
   font-size: 11px;
   color: var(--gray-400);
   margin-top: 8px;
 }
 
+/* 打字光标 */
+.typing-cursor {
+  display: inline-block;
+  width: 2px; height: 16px;
+  background: var(--primary-dark);
+  vertical-align: text-bottom;
+  animation: blink 0.8s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* 思考中 */
+.typing-dots { display: flex; gap: 5px; padding: 6px 0; }
+.typing-dots span {
+  width: 7px; height: 7px;
+  background: var(--primary);
+  border-radius: 50%;
+  animation: typingBounce 1.4s infinite ease-in-out both;
+}
+.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes typingBounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
 /* 来源引用 */
-.message-sources {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid rgba(168, 230, 207, 0.3);
+.msg-sources {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(168,230,207,0.3);
 }
 
 .sources-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600;
   color: var(--primary-dark);
   margin-bottom: 8px;
 }
 
-.sources-title svg {
-  width: 14px;
-  height: 14px;
-}
+.sources-list { display: flex; flex-wrap: wrap; gap: 8px; }
 
-.sources-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.source-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: rgba(168, 230, 207, 0.2);
+.source-chip {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 10px;
+  background: rgba(168,230,207,0.18);
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: 11px;
 }
 
-.source-name {
-  color: var(--gray-700);
-}
+.source-doc { color: var(--gray-600); font-family: monospace; }
+.source-score { color: var(--primary-dark); font-weight: 600; }
 
-.source-score {
-  color: var(--primary-dark);
-  font-weight: 600;
-}
-
-/* 加载动画 */
-.typing-indicator {
-  display: flex;
-  gap: 6px;
-  padding: 8px 0;
-}
-
-.typing-indicator span {
-  width: 8px;
-  height: 8px;
-  background: var(--primary);
-  border-radius: 50%;
-  animation: typing 1.4s infinite ease-in-out both;
-}
-
-.typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
-.typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
-
-@keyframes typing {
-  0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
-  40% { transform: scale(1); opacity: 1; }
-}
-
-/* 输入区域 */
+/* --- 输入区 --- */
 .input-section {
-  padding: 20px 32px 32px;
-  border-top: 1px solid rgba(168, 230, 207, 0.3);
+  padding: 16px 28px 28px;
+  border-top: 1px solid rgba(168,230,207,0.3);
+  flex-shrink: 0;
 }
 
-.input-container {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  background: rgba(255, 255, 255, 0.95);
-  border: 2px solid rgba(168, 230, 207, 0.4);
+.input-wrapper {
+  display: flex; align-items: flex-end; gap: 10px;
+  background: rgba(255,255,255,0.95);
+  border: 2px solid rgba(168,230,207,0.4);
   border-radius: var(--radius-xl);
-  padding: 12px 16px;
-  transition: all 0.3s ease;
+  padding: 10px 16px;
+  transition: all var(--transition);
 }
 
-.input-container:focus-within {
+.input-wrapper:focus-within {
   border-color: var(--primary);
-  box-shadow: 0 0 0 4px rgba(168, 230, 207, 0.2);
+  box-shadow: 0 0 0 4px rgba(168,230,207,0.2);
+}
+
+.input-wrapper.disabled {
+  opacity: 0.6;
 }
 
 .chat-input {
   flex: 1;
-  border: none;
-  background: transparent;
-  font-size: 15px;
-  color: var(--gray-800);
-  resize: none;
-  outline: none;
+  border: none; background: transparent;
+  font-size: 14px; color: var(--gray-800);
+  resize: none; outline: none;
   line-height: 1.5;
-  max-height: 120px;
+  max-height: 150px;
+  font-family: inherit;
 }
 
-.chat-input::placeholder {
-  color: var(--gray-400);
-}
+.chat-input::placeholder { color: var(--gray-400); }
+.chat-input:disabled { cursor: not-allowed; }
 
 .send-btn {
-  width: 40px;
-  height: 40px;
+  width: 38px; height: 38px;
   border: none;
   background: var(--gray-200);
   border-radius: var(--radius-full);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   cursor: pointer;
   color: var(--gray-400);
-  transition: all 0.3s ease;
+  transition: all var(--transition);
   flex-shrink: 0;
 }
 
-.send-btn.active {
-  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+.send-btn.ready {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
   color: white;
   box-shadow: var(--shadow);
 }
 
-.send-btn.active:hover {
-  transform: scale(1.05);
-  box-shadow: var(--shadow-lg);
-}
+.send-btn.ready:hover { transform: scale(1.06); box-shadow: var(--shadow-lg); }
+.send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.send-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.send-btn svg {
-  width: 20px;
-  height: 20px;
-}
-
-.input-tips {
+.input-hint {
   text-align: center;
-  margin-top: 8px;
-  font-size: 12px;
+  margin-top: 6px;
+  font-size: 11px;
   color: var(--gray-400);
 }
 
-/* 头部知识库选择器 */
-.kb-selector-header {
-  position: relative;
-}
-
-.kb-selector-header .kb-dropdown {
-  position: relative;
-  flex: 1;
-  max-width: 320px;
-}
-
-.kb-selector-header .kb-selected {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(168, 230, 207, 0.4);
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  min-width: 160px;
-}
-
-.kb-selector-header .kb-selected:hover {
-  border-color: var(--primary);
-  background: white;
-  box-shadow: var(--shadow-sm);
-}
-
-.kb-selector-header .kb-dropdown.open .kb-selected {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(168, 230, 207, 0.2);
-}
-
-.kb-selector-header .kb-icon {
-  width: 18px;
-  height: 18px;
-  color: var(--primary-dark);
-}
-
-.kb-selector-header .kb-selected .placeholder {
-  color: var(--gray-500);
-  font-size: 13px;
-}
-
-.kb-selector-header .kb-selected .kb-name {
-  font-size: 13px;
-  color: var(--gray-800);
-  font-weight: 500;
-  flex: 1;
-}
-
-.kb-selector-header .dropdown-arrow {
-  width: 16px;
-  height: 16px;
-  color: var(--gray-400);
-  transition: transform 0.2s ease;
-}
-
-.kb-selector-header .kb-dropdown.open .dropdown-arrow {
-  transform: rotate(180deg);
-}
-
-.kb-selector-header .kb-options {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 280px;
-  background: white;
-  border: 1px solid rgba(168, 230, 207, 0.4);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-lg);
-  z-index: 1000;
-  max-height: 320px;
+/* ---------- 右侧面板 ---------- */
+.sidebar-section {
+  width: 300px;
+  background: rgba(255,255,255,0.7);
+  backdrop-filter: blur(10px);
+  border-left: 1px solid rgba(168,230,207,0.3);
+  padding: 22px;
   overflow-y: auto;
-  animation: dropdownSlideIn 0.2s ease;
-}
-
-@keyframes dropdownSlideIn {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.kb-selector-header .kb-option {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.kb-selector-header .kb-option:hover {
-  background: rgba(168, 230, 207, 0.15);
-}
-
-.kb-selector-header .kb-option.selected {
-  background: rgba(168, 230, 207, 0.25);
-}
-
-.kb-selector-header .kb-option input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--primary);
-  cursor: pointer;
-}
-
-.kb-selector-header .kb-option span {
-  font-size: 14px;
-  color: var(--gray-700);
-}
-
-.kb-selector-header .kb-option-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.kb-selector-header .kb-option-name {
-  font-size: 14px;
-  color: var(--gray-800);
-  font-weight: 500;
-}
-
-.kb-selector-header .kb-option-count {
-  font-size: 12px;
-  color: var(--gray-500);
-}
-
-.kb-selector-header .kb-status {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
   flex-shrink: 0;
 }
 
-.kb-selector-header .kb-status.active {
-  background: var(--success);
-}
-
-.kb-selector-header .kb-status.building {
-  background: var(--warning);
-  animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-.kb-selector-header .kb-divider {
-  height: 1px;
-  background: var(--gray-200);
-  margin: 4px 0;
-}
-
-/* 侧边栏 */
-.sidebar-section {
-  width: 320px;
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(10px);
-  border-left: 1px solid rgba(168, 230, 207, 0.3);
-  padding: 24px;
-  overflow-y: auto;
-}
-
 .info-card {
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: var(--radius-lg);
-  padding: 20px;
-  margin-bottom: 20px;
+  background: rgba(255,255,255,0.85);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 16px;
   box-shadow: var(--shadow-sm);
-  border: 1px solid rgba(168, 230, 207, 0.3);
+  border: 1px solid rgba(168,230,207,0.25);
 }
 
 .card-title {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 14px; font-weight: 600;
   color: var(--gray-800);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 16px;
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 14px;
 }
 
-.card-title svg {
-  width: 20px;
-  height: 20px;
-  color: var(--primary-dark);
-}
+.card-title svg { color: var(--primary-dark); }
 
-.info-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 0;
+.info-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 0;
   border-bottom: 1px solid var(--gray-100);
-}
-
-.info-item:last-child {
-  border-bottom: none;
-}
-
-.info-label {
   font-size: 13px;
   color: var(--gray-500);
 }
 
-.info-value {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--gray-800);
-}
+.info-row:last-child { border-bottom: none; }
 
-.info-value.success {
-  color: var(--success);
-}
+.info-val { font-weight: 600; color: var(--gray-800); }
+.info-val.ok { color: var(--success); }
 
-/* 设置项 */
-.setting-item {
-  margin-bottom: 16px;
-}
+.info-hint { font-size: 13px; color: var(--gray-400); line-height: 1.6; }
 
-.setting-item label {
-  display: block;
-  font-size: 13px;
-  color: var(--gray-600);
-  margin-bottom: 8px;
-}
+.btn-small { width: 100%; padding: 8px 12px; font-size: 12px; margin-top: 10px; }
 
-.setting-select,
-.setting-input {
-  width: 100%;
-  padding: 10px 14px;
-  border: 1px solid var(--gray-200);
-  border-radius: var(--radius);
-  font-size: 13px;
-  background: white;
-  outline: none;
-}
-
-.setting-select:focus,
-.setting-input:focus {
-  border-color: var(--primary);
-}
-
-.setting-slider {
-  width: 100%;
-  margin-bottom: 4px;
-}
-
-.slider-value {
-  font-size: 12px;
-  color: var(--primary-dark);
-  font-weight: 600;
-}
-
-/* 提示列表 */
-.tips-list {
-  list-style: none;
-  padding: 0;
-}
-
+.tips-list { list-style: none; padding: 0; }
 .tips-list li {
-  font-size: 13px;
-  color: var(--gray-600);
-  padding: 8px 0;
-  padding-left: 20px;
+  font-size: 12px; color: var(--gray-600);
+  padding: 6px 0 6px 16px;
   position: relative;
 }
-
 .tips-list li::before {
-  content: '•';
-  position: absolute;
-  left: 0;
+  content: '•'; position: absolute; left: 0;
   color: var(--primary);
   font-weight: bold;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* 错误卡片 */
+.error-card { border-color: rgba(229,115,115,0.3); }
+.error-title { color: var(--error) !important; }
+.error-line {
+  font-size: 11px; color: var(--error);
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(229,115,115,0.1);
+  word-break: break-all;
 }
 
-/* 响应式 */
+/* ---------- 响应式 ---------- */
 @media (max-width: 1024px) {
-  .sidebar-section {
-    display: none;
-  }
+  .sidebar-section { display: none; }
 }
 
 @media (max-width: 768px) {
-  .chat-header {
-    padding: 16px 20px;
-  }
-  
-  .messages-container {
-    padding: 20px;
-  }
-  
-  .message-content {
-    max-width: 85%;
-  }
-  
-  .input-section {
-    padding: 16px 20px 24px;
-  }
+  .chat-header { padding: 14px 16px; }
+  .messages-container { padding: 16px; }
+  .msg-bubble { max-width: 88%; }
+  .input-section { padding: 12px 16px 20px; }
 }
 </style>

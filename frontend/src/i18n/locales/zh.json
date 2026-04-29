@@ -27,7 +27,8 @@
     "settings": "系统设置",
     "userManagement": "用户管理",
     "adminDashboard": "管理面板",
-    "logout": "退出登录"
+    "logout": "退出登录",
+    "department": "部门管理"
   },
   "auth": {
     "login": "登录",

@@ -1,33 +1,43 @@
+"""
+Search & Ask Service 入口
+
+检索与问答微服务 (Port 8002)
+
+启动方式:
+    cd backend/v1/search_and_ask
+    python main.py
+"""
+
 import os
 import sys
 from contextlib import asynccontextmanager
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_SEARCH_AND_ASK = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _SEARCH_AND_ASK)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from config import config
-from routes import router
+from routes import router as search_router
 from utils.logger import logger
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Search and Ask Service starting...")
+    logger.info("Search & Ask Service v2.0 starting...")
     yield
-    logger.info("Search and Ask Service shutting down...")
+    logger.info("Search & Ask Service shutting down...")
 
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="Search and Ask Service",
+        title="Search & Ask Service",
         description="检索与问答服务",
-        version="1.0.0",
+        version="2.0.0",
         docs_url="/docs",
         redoc_url="/redoc",
-        lifespan=lifespan
+        lifespan=lifespan,
     )
 
     app.add_middleware(
@@ -38,49 +48,23 @@ def create_app() -> FastAPI:
         allow_headers=config.api.CORS_ALLOW_HEADERS,
     )
 
-    app.include_router(router, prefix=f"{config.api.API_PREFIX}/search")
+    app.include_router(search_router, prefix=f"{config.api.API_PREFIX}/search")
 
     @app.get("/health")
     async def health_check():
-        return {
-            "status": "healthy",
-            "service": "search-and-ask",
-            "version": "1.0.0"
-        }
+        return {"status": "healthy", "service": "search-and-ask", "version": "2.0.0"}
 
     @app.get("/")
     async def index():
-        return {
-            "service": "Search and Ask Service",
-            "version": "1.0.0",
-            "port": 8002,
-            "docs": "/docs"
-        }
+        return {"service": "Search & Ask Service", "version": "2.0.0", "port": config.api.PORT, "docs": "/docs"}
 
     return app
 
 
 def main():
     import uvicorn
-
-    print(f"""
-╔══════════════════════════════════════════════════════════╗
-║         Search and Ask Service (Port 8002)               ║
-╠══════════════════════════════════════════════════════════╣
-║  服务地址: http://{config.api.HOST}:8002                  ║
-║  API文档: http://{config.api.HOST}:8002/docs              ║
-║  API前缀: {config.api.API_PREFIX}                         ║
-║  调试模式: {'开启' if config.api.DEBUG else '关闭'}         ║
-╚══════════════════════════════════════════════════════════╝
-    """)
-
-    uvicorn.run(
-        "main:create_app",
-        host=config.api.HOST,
-        port=8002,
-        reload=config.api.DEBUG,
-        factory=True
-    )
+    print(f"\n  Search & Ask Service v2.0 on http://{config.api.HOST}:{config.api.PORT}\n")
+    uvicorn.run("main:create_app", host=config.api.HOST, port=config.api.PORT, reload=config.api.DEBUG, factory=True)
 
 
 if __name__ == "__main__":

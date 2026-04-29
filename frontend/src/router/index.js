@@ -33,6 +33,12 @@ const routes = [
         meta: { title: '编辑用户' }
       },
       {
+        path: 'departments',
+        name: 'Department',
+        component: () => import('../pages/Department.vue'),
+        meta: { title: '部门管理' }
+      },
+      {
         path: 'parser',
         name: 'Upload',
         component: () => import('../pages/Upload.vue'),
@@ -64,6 +70,19 @@ const routes = [
     component: () => import('../pages/Login.vue'),
     meta: { title: '登录', public: true }
   },
+  // ── 用户端路由（独立于管理员界面）──
+  {
+    path: '/user/login',
+    name: 'UserLogin',
+    component: () => import('../pages/UserLogin.vue'),
+    meta: { title: '用户登录', public: true }
+  },
+  {
+    path: '/user/chat',
+    name: 'UserChat',
+    component: () => import('../pages/UserChat.vue'),
+    meta: { title: '智能问答', userPage: true }
+  },
   {
     path: '/admin/dashboard',
     name: 'AdminDashboard',
@@ -92,27 +111,27 @@ router.beforeEach((to, from, next) => {
   const appName = localStorage.getItem('locale') === 'en' ? 'RAG System' : 'RAG系统'
   document.title = to.meta.title ? `${to.meta.title} - ${appName}` : appName
   
-  // 检查是否是公开页面
   const isPublicPage = to.meta.public === true
-  
-  // 检查登录token
+  const isUserPage = to.meta.userPage === true
+
+  // 用户端页面：用 user_token 鉴权
+  if (isUserPage) {
+    const userToken = localStorage.getItem('user_token')
+    if (!userToken) return next('/user/login')
+    return next()
+  }
+
+  // 已登录用户访问用户登录页，跳转到问答
+  if (to.path === '/user/login' && localStorage.getItem('user_token')) {
+    return next('/user/chat')
+  }
+
+  // 管理员端鉴权
   const token = localStorage.getItem('token')
-  
-  // 管理员权限检查
-  if (to.meta.admin && !token) {
-    return next('/login')
-  }
-  
-  // 非公开页面需要登录
-  if (!isPublicPage && !token) {
-    return next('/login')
-  }
-  
-  // 已登录用户访问登录页，重定向到首页
-  if (token && to.path === '/login') {
-    return next('/')
-  }
-  
+  if (to.meta.admin && !token) return next('/login')
+  if (!isPublicPage && !token) return next('/login')
+  if (token && to.path === '/login') return next('/')
+
   next()
 })
 
