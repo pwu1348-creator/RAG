@@ -67,6 +67,8 @@ class MySQLConfig:
 class MinerUConfig:
     ENABLE_OCR: bool = True
     OCR_LANGUAGE: str = "ch_sim"
+    # 解析引擎: pipeline（管道普通模式）、vlm（VLM模式）、hybrid（混合模式）
+    PARSE_ENGINE: str = "pipeline"
 
 
 @dataclass
@@ -150,6 +152,9 @@ class Config:
         
         self.parser.MAX_FILE_SIZE = int(os.getenv('MAX_FILE_SIZE_MB', self.parser.MAX_FILE_SIZE))
         self.parser.CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', self.parser.CHUNK_SIZE))
+        
+        # MinerU 解析引擎配置
+        self.mineru.PARSE_ENGINE = os.getenv('MINERU_PARSE_ENGINE', self.mineru.PARSE_ENGINE)
         
         self.embedding.BASE_URL = os.getenv('EMBEDDING_BASE_URL', self.embedding.BASE_URL)
         self.embedding.API_KEY = os.getenv('EMBEDDING_API_KEY', self.embedding.API_KEY)

@@ -167,7 +167,7 @@ def _parse_by_pipeline(file_path: str, temp_image_dir: str) -> tuple:
     middle_json = pipeline_result_to_middle_json(
         infer_results[0], all_image_lists[0], all_pdf_docs[0],
         image_writer, lang_list[0], ocr_enabled_list[0],
-        formula_enable=True,
+        formula_enabled=True,
     )
     image_dir    = os.path.basename(temp_image_dir)
     content_list = pipeline_union_make(middle_json["pdf_info"], MakeMode.CONTENT_LIST, image_dir)
@@ -177,13 +177,13 @@ def _parse_by_pipeline(file_path: str, temp_image_dir: str) -> tuple:
 def _parse_by_vlm(file_path: str, temp_image_dir: str) -> tuple:
     """使用 VLM 引擎解析 PDF"""
     logger.info("[Parser-INFO] 使用 vlm 引擎")
-    backend   = get_vlm_engine(inference_engine="transformers", is_async=False)
+    predictor = get_vlm_engine(inference_engine="transformers", is_async=False)
     pdf_bytes = read_fn(file_path)
     pdf_bytes = convert_pdf_bytes_to_bytes_by_pypdfium2(pdf_bytes, 0, None)
 
     image_writer = FileBasedDataWriter(temp_image_dir)
     middle_json, _ = vlm_doc_analyze(
-        pdf_bytes, image_writer=image_writer, backend=backend,
+        pdf_bytes, image_writer=image_writer, predictor=predictor,
         server_url=None, gpu_memory_utilization=0.4,
     )
     image_dir    = os.path.basename(temp_image_dir)
@@ -194,7 +194,7 @@ def _parse_by_vlm(file_path: str, temp_image_dir: str) -> tuple:
 def _parse_by_hybrid(file_path: str, temp_image_dir: str) -> tuple:
     """使用 hybrid 引擎解析 PDF"""
     logger.info("[Parser-INFO] 使用 hybrid 引擎")
-    backend   = get_vlm_engine(inference_engine="transformers", is_async=False)
+    predictor = get_vlm_engine(inference_engine="transformers", is_async=False)
     pdf_bytes = read_fn(file_path)
     pdf_bytes = convert_pdf_bytes_to_bytes_by_pypdfium2(pdf_bytes, 0, None)
 
@@ -202,8 +202,8 @@ def _parse_by_hybrid(file_path: str, temp_image_dir: str) -> tuple:
     middle_json, _, _ = hybrid_doc_analyze(
         pdf_bytes,
         image_writer=image_writer,
-        backend=backend,
-        parse_method="hybrid_auto",
+        predictor=predictor,
+        parse_method="auto",
         language="ch",
         inline_formula_enable=True,
         server_url=None,
@@ -214,9 +214,16 @@ def _parse_by_hybrid(file_path: str, temp_image_dir: str) -> tuple:
     return middle_json, content_list
 
 
+# 支持的解析引擎列表
+SUPPORTED_ENGINES = ("pipeline", "vlm", "hybrid")
+
+
 def _parse_pdf(file_path: str, temp_image_dir: str) -> tuple:
-    """根据环境变量选择引擎，统一入口"""
-    engine = os.getenv("MINERU_PARSE_ENGINE", "pipeline")
+    """根据配置选择引擎，统一入口。优先级：config > 环境变量 > 默认 pipeline"""
+    engine = config.mineru.PARSE_ENGINE or os.getenv("MINERU_PARSE_ENGINE", "pipeline")
+    engine = engine.lower().strip()
+    logger.info(f"[Parser-INFO] 当前解析引擎: {engine}")
+
     if engine == "vlm":
         return _parse_by_vlm(file_path, temp_image_dir)
     elif engine == "hybrid":
@@ -551,5 +558,9 @@ class DocumentProcessor:
 
         if self.mysql and kb_id and file_id:
             self.mysql.update_kb_document_status(kb_id, file_id, "completed", 100)
+
+        # 刷新知识库的 doc_count 和 total_chunks 统计
+        if self.mysql and kb_id:
+            self.mysql.refresh_kb_statistics(kb_id)
 
         return parse_result

@@ -3,6 +3,12 @@
 
 基于检索结果构建 prompt，调用 LLM 生成回答。
 支持标准模式 / 撰写模式，以及流式 / 非流式两种输出。
+
+上下文管理策略（适配 Qwen3-235B-A22B 128K 窗口）：
+- 统一由后端管控历史长度，前端/接口层不再截断
+- 用 2字符≈1token 快速估算，总输入不超过 121600 token（128K×95%）
+- 超阈值时自动压缩旧历史：保留 system + 最近2轮，其余合并为摘要
+- 检索内容上限放开到 32000 字符，LLM 输出上限 4096 token
 """
 
 import json
@@ -12,6 +18,23 @@ from typing import List, Dict, Any, Optional, AsyncGenerator
 from config import config
 from core.retriever import SearchService
 from utils.logger import logger
+from services.conversation_service import ConversationService
+
+
+# ---------------------------------------------------------------------------
+# 上下文窗口常量
+# ---------------------------------------------------------------------------
+
+MODEL_CONTEXT_LIMIT = 128_000   # Qwen3-235B-A22B 上下文窗口（token）
+CONTEXT_SAFE_RATIO  = 0.95      # 安全阈值 95%
+CONTEXT_SAFE_LIMIT  = int(MODEL_CONTEXT_LIMIT * CONTEXT_SAFE_RATIO)  # 121600
+CHARS_PER_TOKEN     = 2         # 中英混合粗估：2字符 ≈ 1 token
+MAX_OUTPUT_TOKENS   = 4096      # LLM 单次输出上限（原2048，现放开到4096）
+MAX_CONTEXT_CHARS   = 32000     # 检索内容最大字符（原8000，现放开到32000）
+
+# 截断提示（finish_reason=length 时追加）
+# 注意：不能以 \n\n 开头，否则会破坏 SSE data: 格式
+TRUNCATION_NOTICE = "······ 由于大模型上下文窗口大小限制，回答已经被大模型截断。"
 
 
 # ---------------------------------------------------------------------------
@@ -38,13 +61,116 @@ class QuestionAnswering:
         self.search_service = SearchService()
 
     # ==================================================================
-    # 上下文构建
+    # ── Token 估算 & 历史压缩工具方法 ──────────────────────────────────
+    # ==================================================================
+
+    @staticmethod
+    def _estimate_tokens(messages: List[Dict[str, str]]) -> int:
+        """
+        快速估算 messages 列表的 token 占用。
+        中英混合按 2字符≈1token 计算，包含 role 字段开销。
+        """
+        total_chars = 0
+        for m in messages:
+            # role 本身也占 token，加固定开销 4
+            total_chars += len(m.get("content", "")) + len(m.get("role", "")) + 4
+        return total_chars // CHARS_PER_TOKEN
+
+    @staticmethod
+    def _compress_history(messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """
+        历史压缩：超过安全阈值时调用。
+        策略：保留 system + 最近2轮（4条消息），把更早的历史合并为一条摘要。
+        """
+        system_msgs = [m for m in messages if m["role"] == "system"]
+        non_system  = [m for m in messages if m["role"] != "system"]
+
+        # 最后一条是当前用户问题（含检索结果），倒数2-5条是最近2轮历史
+        # 结构：[...old_history..., recent_4_msgs, current_user_msg]
+        current_user = non_system[-1:]          # 当前问题（最后1条）
+        recent       = non_system[-5:-1]        # 最近2轮（倒数2~5条，最多4条）
+        old          = non_system[:-5]          # 更早的历史
+
+        if not old:
+            # 没有可压缩的旧历史，直接返回原始 messages
+            return messages
+
+        # 把旧历史拼成摘要（每条截取前150字，避免摘要本身过长）
+        summary_lines = ["以下是更早对话的摘要（已压缩）："]
+        for m in old:
+            role_label = "用户" if m["role"] == "user" else "助手"
+            snippet = m.get("content", "")[:150].replace("\n", " ")
+            summary_lines.append(f"{role_label}：{snippet}")
+        summary_msg = {
+            "role": "user",
+            "content": "\n".join(summary_lines),
+        }
+
+        compressed = system_msgs + [summary_msg] + recent + current_user
+        logger.info(
+            f"[Context] 历史压缩触发：旧历史 {len(old)} 条 → 1 条摘要，"
+            f"保留最近 {len(recent)} 条 + 当前问题"
+        )
+        return compressed
+
+    def _build_messages_with_context_guard(
+        self,
+        query: str,
+        context: str,
+        is_write_mode: bool = False,
+        chat_history: List[Dict[str, str]] = None,
+    ) -> List[Dict[str, str]]:
+        """
+        构建 OpenAI messages 列表，并执行上下文安全检查。
+
+        流程：
+        1. 拼接 system + 完整历史 + 当前用户问题（含检索结果）
+        2. 估算总 token
+        3. 若超过 CONTEXT_SAFE_LIMIT，触发历史压缩
+        4. 压缩后再次估算并记录日志
+        """
+        system_prompt = _SYSTEM_PROMPT_WRITE if is_write_mode else _SYSTEM_PROMPT_QA
+        messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+
+        # 加入完整历史（不在此处截断，由后端统一管控）
+        if chat_history:
+            for h in chat_history:
+                role = h.get("role", "user")
+                if role in ("user", "assistant"):
+                    messages.append({"role": role, "content": h.get("content", "")})
+
+        # 当前用户问题（含检索结果）
+        user_content = f"检索结果：\n{context}\n\n用户问题：\n{query}"
+        messages.append({"role": "user", "content": user_content})
+
+        # ── Token 估算 ──────────────────────────────────────────────────
+        estimated = self._estimate_tokens(messages)
+        logger.info(
+            f"[Context] 估算 token={estimated} / 安全阈值={CONTEXT_SAFE_LIMIT} "
+            f"（历史条数={len(chat_history) if chat_history else 0}，"
+            f"检索内容={len(context)} 字符）"
+        )
+
+        # ── 超阈值时压缩 ────────────────────────────────────────────────
+        if estimated > CONTEXT_SAFE_LIMIT:
+            logger.warning(
+                f"[Context] 估算 token={estimated} 超过安全阈值 {CONTEXT_SAFE_LIMIT}，"
+                f"触发历史压缩"
+            )
+            messages = self._compress_history(messages)
+            estimated_after = self._estimate_tokens(messages)
+            logger.info(f"[Context] 压缩后估算 token={estimated_after}")
+
+        return messages
+
+    # ==================================================================
+    # 上下文构建（检索结果 → 文本）
     # ==================================================================
 
     def _build_context(
         self,
         results: List[Dict[str, Any]],
-        max_chars: int = 8000,
+        max_chars: int = MAX_CONTEXT_CHARS,
     ) -> str:
         """从检索结果构建 LLM 上下文，适配父子检索模式的父块输出"""
         if not results:
@@ -85,52 +211,6 @@ class QuestionAnswering:
 
         return "\n\n---\n\n".join(parts)
 
-    def _build_prompt(
-        self,
-        query: str,
-        context: str,
-        is_write_mode: bool = False,
-        chat_history: List[Dict[str, str]] = None,
-    ) -> str:
-        """构建完整 prompt（含对话历史）"""
-        history_text = ""
-        if chat_history:
-            recent = chat_history[-6:]
-            lines = []
-            for h in recent:
-                role = "用户" if h.get("role") == "user" else "助手"
-                lines.append(f"{role}: {h.get('content', '')}")
-            history_text = "对话历史：\n" + "\n".join(lines) + "\n\n"
-
-        return f"""{history_text}检索结果：
-{context}
-
-用户问题：
-{query}
-
-请回答："""
-
-    def _build_messages(
-        self,
-        query: str,
-        context: str,
-        is_write_mode: bool = False,
-        chat_history: List[Dict[str, str]] = None,
-    ) -> List[Dict[str, str]]:
-        """构建 OpenAI messages 列表"""
-        system = _SYSTEM_PROMPT_WRITE if is_write_mode else _SYSTEM_PROMPT_QA
-        messages = [{"role": "system", "content": system}]
-
-        if chat_history:
-            for h in chat_history[-6:]:
-                role = h.get("role", "user")
-                if role in ("user", "assistant"):
-                    messages.append({"role": role, "content": h.get("content", "")})
-
-        user_content = f"检索结果：\n{context}\n\n用户问题：\n{query}"
-        messages.append({"role": "user", "content": user_content})
-        return messages
-
     # ==================================================================
     # 非流式问答
     # ==================================================================
@@ -143,7 +223,7 @@ class QuestionAnswering:
         top_k: int = 10,
         min_score: float = 0.3,
         is_write_mode: bool = False,
-        max_context_chars: int = 8000,
+        max_context_chars: int = MAX_CONTEXT_CHARS,
         use_rerank: bool = True,
         use_kg: bool = True,
         kg_weight: float = 0.3,
@@ -162,9 +242,16 @@ class QuestionAnswering:
             )
 
             context = self._build_context(results, max_context_chars)
-            messages = self._build_messages(query, context, is_write_mode, chat_history)
+            messages = self._build_messages_with_context_guard(
+                query, context, is_write_mode, chat_history
+            )
 
-            answer = await self._call_llm(messages)
+            answer, finish_reason = await self._call_llm(messages)
+
+            # 超限截断提示
+            if finish_reason == "length":
+                answer += TRUNCATION_NOTICE
+
             citations = self._extract_citations(results)
 
             return {
@@ -195,7 +282,7 @@ class QuestionAnswering:
         top_k: int = 10,
         min_score: float = 0.3,
         is_write_mode: bool = False,
-        max_context_chars: int = 8000,
+        max_context_chars: int = MAX_CONTEXT_CHARS,
         use_rerank: bool = True,
         use_kg: bool = True,
         kg_weight: float = 0.3,
@@ -214,10 +301,19 @@ class QuestionAnswering:
             )
 
             context = self._build_context(results, max_context_chars)
-            messages = self._build_messages(query, context, is_write_mode, chat_history)
+            messages = self._build_messages_with_context_guard(
+                query, context, is_write_mode, chat_history
+            )
 
-            async for chunk in self._call_llm_stream(messages):
+            truncated = False
+            async for chunk, finish_reason in self._call_llm_stream(messages):
                 yield chunk
+                if finish_reason == "length":
+                    truncated = True
+
+            # 超限截断提示（流式末尾追加）
+            if truncated:
+                yield TRUNCATION_NOTICE
 
             citations = self._extract_citations(results)
             meta = {
@@ -225,11 +321,11 @@ class QuestionAnswering:
                 "search_results": results[:5],
                 "timestamp": datetime.now().isoformat(),
             }
-            yield "\n\n<!--RAG_META " + json.dumps(meta, ensure_ascii=False) + " RAG_META-->"
+            yield "<!--RAG_META " + json.dumps(meta, ensure_ascii=False) + " RAG_META-->"
 
         except Exception as e:
             logger.error(f"[QuestionAnswering] 流式问答失败: {e}", exc_info=True)
-            yield f"\n\n抱歉，处理您的请求时出现错误: {str(e)}"
+            yield f"抱歉，处理您的请求时出现错误: {str(e)}"
 
     # ==================================================================
     # LLM 调用（使用 AsyncOpenAI）
@@ -241,7 +337,7 @@ class QuestionAnswering:
             "model": config.llm.MODEL,
             "messages": messages,
             "stream": stream,
-            "max_tokens": config.llm.MAX_TOKENS,
+            "max_tokens": MAX_OUTPUT_TOKENS,
             # 降低随机性，让模型严格遵守 system prompt 指令
             "temperature": 0.1,
             "top_p": 0.8,
@@ -254,8 +350,11 @@ class QuestionAnswering:
             body["frequency_penalty"] = config.llm.FREQUENCY_PENALTY
         return body
 
-    async def _call_llm(self, messages: List[Dict[str, str]]) -> str:
-        """调用 LLM（非流式，httpx 直接请求）"""
+    async def _call_llm(self, messages: List[Dict[str, str]]) -> tuple[str, str]:
+        """
+        调用 LLM（非流式，httpx 直接请求）
+        返回 (answer_text, finish_reason)
+        """
         import httpx
         url = f"{config.llm.BASE_URL.rstrip('/')}/chat/completions"
         headers = {
@@ -268,15 +367,22 @@ class QuestionAnswering:
                 resp = await client.post(url, headers=headers, json=body)
                 resp.raise_for_status()
                 data = resp.json()
-                return data["choices"][0]["message"]["content"] or ""
+                choice = data["choices"][0]
+                finish_reason = choice.get("finish_reason", "")
+                content = choice["message"]["content"] or ""
+                return content, finish_reason
         except Exception as e:
             logger.error(f"[QuestionAnswering] LLM 调用失败: {e}")
-            return "抱歉，生成回答时出现错误。"
+            return "抱歉，生成回答时出现错误。", ""
 
     async def _call_llm_stream(
         self, messages: List[Dict[str, str]]
-    ) -> AsyncGenerator[str, None]:
-        """调用 LLM（流式，httpx 直接请求 SSE）"""
+    ) -> AsyncGenerator[tuple[str, str], None]:
+        """
+        调用 LLM（流式，httpx 直接请求 SSE）
+        每次 yield (chunk_text, finish_reason)
+        finish_reason 仅在最后一个 chunk 时非空
+        """
         import httpx
         url = f"{config.llm.BASE_URL.rstrip('/')}/chat/completions"
         headers = {
@@ -299,35 +405,38 @@ class QuestionAnswering:
                         data_str = line[6:]
                         if data_str == "[DONE]":
                             if not thinking_ended:
-                                # 通知思考结束（路由层会统一加 data: 前缀）
-                                yield "\x02THINK_END\x02"
+                                yield "\x02THINK_END\x02", ""
                                 thinking_ended = True
                             break
                         try:
                             import json as _json
                             chunk = _json.loads(data_str)
-                            delta = chunk["choices"][0].get("delta", {})
+                            choice = chunk["choices"][0]
+                            delta = choice.get("delta", {})
+                            finish_reason = choice.get("finish_reason") or ""
                             reasoning = delta.get("reasoning_content") or ""
                             content = delta.get("content") or ""
 
-                            # 思考链内容：用 \x01 包裹（不会出现在正文中），前端单独渲染
+                            # 思考链内容：用 \x01 包裹，前端单独渲染
                             if reasoning:
-                                # 对 reasoning 内容做 base64 编码，避免换行破坏 SSE 格式
                                 import base64 as _b64
                                 encoded = _b64.b64encode(reasoning.encode()).decode()
-                                yield f"\x01{encoded}\x01"
+                                yield f"\x01{encoded}\x01", ""
 
-                            # 正式回答内容：思考链结束时先发结束标记
+                            # 正式回答内容
                             if content:
                                 if not thinking_ended:
-                                    yield "\x02THINK_END\x02"
+                                    yield "\x02THINK_END\x02", ""
                                     thinking_ended = True
-                                yield content
+                                yield content, finish_reason
+                            elif finish_reason:
+                                # 无内容但有 finish_reason（如 length）
+                                yield "", finish_reason
                         except Exception:
                             continue
         except Exception as e:
             logger.error(f"[QuestionAnswering] LLM 流式调用失败: {e}")
-            yield f"\n\n抱歉，生成回答时出现错误：{str(e)}"
+            yield f"抱歉，生成回答时出现错误：{str(e)}", ""
 
     # ==================================================================
     # 引用

@@ -53,6 +53,8 @@ export function searchChunks({ query, knowledge_base_id, top_k = 10, use_rerank 
 /**
  * 标准问答（非流式）
  * @returns {{ answer, citations, search_results, timestamp }}
+ *
+ * 注意：历史截断已统一由后端 qa.py 管控，此处不再截断。
  */
 export function ask({ query, knowledge_base_id, top_k = 10, use_rerank = true, chat_history = null }) {
   return qaApi.post('/search/ask', {
@@ -60,7 +62,7 @@ export function ask({ query, knowledge_base_id, top_k = 10, use_rerank = true, c
     knowledge_base_id,
     top_k,
     use_rerank,
-    chat_history: chat_history?.slice(-10) ?? null,
+    chat_history: chat_history ?? null,
   })
 }
 
@@ -96,12 +98,13 @@ export function streamAsk({
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
+    // 历史截断统一由后端 qa.py 管控，此处完整透传
     body: JSON.stringify({
       query,
       knowledge_base_id,
       top_k,
       use_rerank,
-      chat_history: chat_history?.slice(-10) ?? null,
+      chat_history: chat_history ?? null,
     }),
     ...(signal ? { signal } : {}),
   })
@@ -131,6 +134,88 @@ export function streamWriteChat({
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify({ query, knowledge_base_id, top_k, use_rerank }),
+  })
+}
+
+// ---------------------------------------------------------------------------
+// 对话持久化管理（conversation_id 模式）
+// ---------------------------------------------------------------------------
+
+/**
+ * 创建新会话，返回 { conversation_id }
+ * @param {string} userId  用户ID，管理员传 "admin"
+ * @param {string} kbId    知识库ID
+ * @param {string} title   会话标题（可选）
+ */
+export function createConversation({ userId, kbId, title = '新对话' }) {
+  return qaApi.post('/search/conversation/create', {
+    user_id: userId,
+    kb_id: kbId,
+    title,
+  })
+}
+
+/**
+ * 获取用户的会话列表
+ */
+export function listConversations({ userId, page = 1, size = 50 }) {
+  return qaApi.get('/search/conversation/list', {
+    params: { user_id: userId, page, size },
+  })
+}
+
+/**
+ * 获取会话详情 + 完整消息列表
+ */
+export function getConversation(conversationId) {
+  return qaApi.get(`/search/conversation/${conversationId}`)
+}
+
+/**
+ * 删除会话
+ */
+export function deleteConversation(conversationId) {
+  return qaApi.delete(`/search/conversation/${conversationId}`)
+}
+
+/**
+ * 更新会话标题
+ */
+export function updateConversationTitle(conversationId, title) {
+  return qaApi.put(`/search/conversation/${conversationId}/title`, { title })
+}
+
+/**
+ * 流式问答（支持 conversation_id 持久化模式）
+ * 传入 conversationId 时：后端自动从数据库加载历史并保存消息
+ * 不传时：退回 chat_history 兼容模式
+ */
+export function streamAskWithConv({
+  query,
+  knowledge_base_id,
+  conversation_id = null,
+  top_k = 10,
+  use_rerank = true,
+  chat_history = null,
+  signal = null,
+}) {
+  const token = localStorage.getItem('token') || ''
+  return fetch('/api/qa/search/ask/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      query,
+      knowledge_base_id,
+      conversation_id,
+      top_k,
+      use_rerank,
+      // 兼容旧模式：不传 conversation_id 时使用 chat_history
+      chat_history: conversation_id ? null : (chat_history ?? null),
+    }),
+    ...(signal ? { signal } : {}),
   })
 }
 

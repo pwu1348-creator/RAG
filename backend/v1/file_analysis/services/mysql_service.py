@@ -511,6 +511,38 @@ class MySQLService:
         finally:
             if conn:
                 conn.close()
+
+    def refresh_kb_statistics(self, kb_id: str) -> bool:
+        """
+        根据实际数据重新计算并更新 knowledge_bases 表的 doc_count 和 total_chunks。
+        在文档解析完成后调用，确保前端展示的统计数据与实际一致。
+        """
+        sql = """
+            UPDATE knowledge_bases kb SET
+                kb.doc_count = (
+                    SELECT COUNT(*) FROM kb_document_relations r
+                    WHERE r.kb_id = kb.kb_id AND r.status = 'completed'
+                ),
+                kb.total_chunks = (
+                    SELECT COUNT(*) FROM document_chunks c
+                    WHERE c.kb_id = kb.kb_id
+                )
+            WHERE kb.kb_id = %s
+        """
+        conn = None
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute(sql, (kb_id,))
+                conn.commit()
+            logger.info(f"Refreshed KB statistics for: {kb_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Refresh KB statistics failed: {e}")
+            return False
+        finally:
+            if conn:
+                conn.close()
     
     def list_unlinked_documents(self, page: int = 1, size: int = 10) -> Dict[str, Any]:
         sql = """

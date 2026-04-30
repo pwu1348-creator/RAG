@@ -11,6 +11,7 @@ export default defineConfig({
     }
   },
   server: {
+    host: '0.0.0.0',
     port: 3000,
     proxy: {
       // 问答检索服务 (QA Service) - 端口 8002，baseURL=/api/qa

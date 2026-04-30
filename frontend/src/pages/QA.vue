@@ -176,10 +176,6 @@
               <span class="info-val">{{ selectedKbDocCount ?? '--' }}</span>
             </div>
             <div class="info-row">
-              <span>分块数</span>
-              <span class="info-val">{{ selectedKbChunks ?? '--' }}</span>
-            </div>
-            <div class="info-row">
               <span>状态</span>
               <span class="info-val ok">正常</span>
             </div>
@@ -347,12 +343,14 @@ async function sendMessage() {
   await scrollBottom()
 
   // 创建 assistant 占位消息（含思考链字段）
-  // 必须用 reactive() 包装，确保属性变更能触发 Vue 响应式更新
-  const assistantMsg = reactive({
+  // 注意：直接 push 普通对象到 ref 数组，Vue 会自动将其转为响应式
+  // 不能用 reactive() 再 push，否则 Vue 会解包导致变量引用失效
+  messages.value.push({
     role: 'assistant', content: '', time: Date.now(), streaming: true, sources: [],
     thinking: '', thinkingDone: false, thinkOpen: false,
   })
-  messages.value.push(assistantMsg)
+  // 通过数组末尾索引获取 Vue 管理的响应式对象引用
+  const assistantMsg = messages.value[messages.value.length - 1]
   currentAssistantMsg.value = assistantMsg
 
   // 构建聊天历史
@@ -392,11 +390,22 @@ async function sendMessage() {
       const lines = buffer.split('\n')
       buffer = lines.pop() || ''
 
+      // SSE 解析：连续的 data: 行属于同一事件，按规范用 \n 拼接
+      // 空行（事件边界）重置标记，避免跨事件误加 \n
+      let lastWasData = false
       for (const line of lines) {
         const trimmed = line.trim()
-        if (!trimmed.startsWith('data: ')) continue
-        const payload = trimmed.slice(6)
+        if (!trimmed.startsWith('data:')) {
+          lastWasData = false
+          continue
+        }
+        // 提取 payload：跳过 "data:" 前缀及可选空格
+        const raw = trimmed.slice(5)
+        const payload = raw.startsWith(' ') ? raw.slice(1) : raw
+        // 同一 SSE 事件内的续行，补回被拆分的 \n
+        if (lastWasData) fullText += '\n'
         fullText += payload
+        lastWasData = true
       }
 
       // ── 增量解析思考链标记（\x01base64\x01 格式）──
@@ -478,7 +487,8 @@ async function sendMessage() {
 }
 
 function buildHistory() {
-  // 从当前会话中提取最近 6 轮问答作为上下文
+  // 完整提取当前会话的对话历史，不在前端截断
+  // 历史长度管控统一由后端 qa.py 的 token 估算 + 动态压缩机制负责
   const history = []
   for (const msg of messages.value) {
     if (msg.streaming || msg.error) continue
@@ -488,11 +498,11 @@ function buildHistory() {
       history.push({ role: 'assistant', content: msg.content })
     }
   }
-  // 不包含最后一条（正在生成的）
+  // 不包含最后一条（正在生成的 assistant 消息）
   if (history.length && history[history.length - 1].role === 'assistant') {
     history.pop()
   }
-  return history.slice(-12)
+  return history
 }
 
 function askQuick(question) {
@@ -559,7 +569,8 @@ function autoResize() {
 
 async function showWelcomeMessage() {
   const welcomeText = '您好，欢迎使用 PengMind 智能问答！请在上方选择知识库，然后输入您的问题，我会基于知识库内容为您解答。'
-  const welcomeMsg = reactive({
+  // 直接 push 普通对象，通过末尾索引获取 Vue 管理的响应式引用
+  messages.value.push({
     role: 'assistant',
     content: '',
     time: Date.now(),
@@ -569,7 +580,7 @@ async function showWelcomeMessage() {
     thinkingDone: false,
     thinkOpen: false,
   })
-  messages.value.push(welcomeMsg)
+  const welcomeMsg = messages.value[messages.value.length - 1]
   await nextTick()
   await scrollBottom()
 

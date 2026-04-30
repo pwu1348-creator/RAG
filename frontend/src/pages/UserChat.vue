@@ -245,7 +245,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { streamAsk } from '../api/qa'
+import { streamAskWithConv, createConversation, listConversations, deleteConversation } from '../api/qa'
 import axios from 'axios'
 
 const router = useRouter()
@@ -329,7 +329,8 @@ function saveSessions() {
 
 async function newChat() {
   const id = Date.now().toString()
-  sessions.value.unshift({ id, name: '新对话', messages: [] })
+  // conversationId 在第一次发送时由后端创建，此处先置空
+  sessions.value.unshift({ id, name: '新对话', messages: [], conversationId: null })
   currentSessionId.value = id
   saveSessions()
   // 新对话自动显示欢迎语（打字机效果，不调用知识库）
@@ -340,7 +341,10 @@ async function newChat() {
 async function showWelcomeMessage() {
   const name = userInfo.username || '同学'
   const welcomeText = `您好，${name}！欢迎使用 PengMind 智能问答。请在左侧「助手设置」中选择知识库，然后输入您的问题，我会基于知识库内容为您解答。`
-  const welcomeMsg = reactive({
+  // 直接 push 普通对象，通过末尾索引获取 Vue 管理的响应式引用
+  const s = sessions.value.find(s => s.id === currentSessionId.value)
+  if (!s) return
+  s.messages.push({
     role: 'assistant',
     content: '',
     time: Date.now(),
@@ -350,10 +354,7 @@ async function showWelcomeMessage() {
     thinkingDone: false,
     thinkOpen: false,
   })
-  // 直接推入当前会话
-  const s = sessions.value.find(s => s.id === currentSessionId.value)
-  if (!s) return
-  s.messages.push(welcomeMsg)
+  const welcomeMsg = s.messages[s.messages.length - 1]
   await nextTick()
   await scrollBottom()
 
@@ -411,31 +412,44 @@ async function sendMessage() {
   if (inputRef.value) inputRef.value.style.height = 'auto'
   await scrollBottom()
 
-  const assistantMsg = reactive({
+  // 直接 push 普通对象，通过末尾索引获取 Vue 管理的响应式引用
+  // 不能用 reactive() 再 pushMessage，否则 Vue 会解包导致变量引用失效
+  pushMessage({
     role: 'assistant', content: '', time: Date.now(), streaming: true, sources: [],
     thinking: '',        // 思考链内容（实时累积）
     thinkingDone: false, // 思考链是否结束
     thinkOpen: false,    // 思考链面板是否展开
   })
-  pushMessage(assistantMsg)
+  const sess0 = sessions.value.find(s => s.id === currentSessionId.value)
+  const assistantMsg = sess0.messages[sess0.messages.length - 1]
   isStreaming.value = true
   const ctrl = new AbortController()
   abortCtrl.value = ctrl
 
-  // 构建历史
-  const history = currentMessages.value
-    .filter(m => !m.streaming && !m.error && m.content)
-    .slice(-12)
-    .map(m => ({ role: m.role, content: m.content }))
-  if (history.length && history[history.length - 1].role === 'assistant') history.pop()
+  // ── 懒创建 conversation_id（首次发送时向后端申请）──────────────
+  const sess = sessions.value.find(s => s.id === currentSessionId.value)
+  if (sess && !sess.conversationId && assistantConfig.kbId) {
+    try {
+      const res = await createConversation({
+        userId: userInfo.user_id || userInfo.username || 'user',
+        kbId: assistantConfig.kbId,
+        title: text.slice(0, 40),
+      })
+      sess.conversationId = res?.data?.conversation_id || null
+      saveSessions()
+    } catch (e) {
+      console.warn('[UserChat] 创建会话失败，降级为无持久化模式', e)
+    }
+  }
+  const conversationId = sess?.conversationId || null
 
   try {
-    const resp = await streamAsk({
+    const resp = await streamAskWithConv({
       query: text,
       knowledge_base_id: assistantConfig.kbId,
+      conversation_id: conversationId,
       top_k: assistantConfig.topK,
       use_rerank: assistantConfig.useRerank,
-      chat_history: history,
       signal: ctrl.signal,
     })
     if (!resp.ok) throw new Error(`服务器错误 (${resp.status})`)
@@ -451,10 +465,16 @@ async function sendMessage() {
       if (done) break
       buf += decoder.decode(value, { stream: true })
       const lines = buf.split('\n'); buf = lines.pop() || ''
+      // SSE 解析：连续的 data: 行属于同一事件，按规范用 \n 拼接
+      let lastWasData = false
       for (const line of lines) {
         const t = line.trim()
-        if (!t.startsWith('data: ')) continue
-        full += t.slice(6)
+        if (!t.startsWith('data:')) { lastWasData = false; continue }
+        const raw = t.slice(5)
+        const payload = raw.startsWith(' ') ? raw.slice(1) : raw
+        if (lastWasData) full += '\n'
+        full += payload
+        lastWasData = true
       }
 
       // ── 增量解析思考链标记（\x01base64\x01 格式）──
@@ -470,7 +490,8 @@ async function sendMessage() {
       processedThinkChunks = allMatches.length
 
       // 有思考内容时先渲染"思考中"，再标记结束（延迟让用户看到思考中状态）
-      if (full.includes('\x02THINK_END\x02') && !assistantMsg.thinkingDone) {
+      // 只有 thinking 非空时才设置 thinkingDone，避免无思考内容时显示空的"思考结束"
+      if (full.includes('\x02THINK_END\x02') && !assistantMsg.thinkingDone && assistantMsg.thinking) {
         await nextTick()
         await new Promise(r => setTimeout(r, 300))
         assistantMsg.thinkingDone = true

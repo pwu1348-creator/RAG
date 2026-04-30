@@ -10,6 +10,7 @@ from config import config
 from services.parser_service import ParserService
 from services.mysql_service import MySQLService
 from models.document import DocumentMetadata
+from core.document_parser import SUPPORTED_ENGINES
 from utils.response import success_response, error_response
 from utils.validators import validate_file
 from utils.logger import logger
@@ -151,3 +152,35 @@ async def get_supported_formats():
         'extensions': config.parser.SUPPORTED_EXTENSIONS,
         'max_size_mb': config.parser.MAX_FILE_SIZE
     })
+
+
+# ==================== 解析引擎管理 ====================
+
+@router.get("/parse-engine")
+async def get_parse_engine():
+    """获取当前解析引擎配置"""
+    return success_response(data={
+        'current_engine': config.mineru.PARSE_ENGINE,
+        'supported_engines': list(SUPPORTED_ENGINES),
+        'engine_descriptions': {
+            'pipeline': '管道普通模式 - 使用传统 OCR + 布局分析管道，适合大多数文档',
+            'vlm': 'VLM模式 - 使用视觉语言模型解析，适合复杂版面文档（需要 VLM 模型）',
+            'hybrid': '混合模式 - 结合 pipeline 和 VLM 的优势，自动选择最佳策略（需要 VLM 模型）',
+        }
+    })
+
+
+@router.put("/parse-engine")
+async def set_parse_engine(request: dict):
+    """切换解析引擎模式"""
+    engine = request.get('engine', '').lower().strip()
+    if engine not in SUPPORTED_ENGINES:
+        return error_response(
+            f"不支持的引擎: {engine}，可选值: {', '.join(SUPPORTED_ENGINES)}", 400
+        )
+    config.mineru.PARSE_ENGINE = engine
+    logger.info(f"[Parser-INFO] 解析引擎已切换为: {engine}")
+    return success_response(
+        data={'current_engine': engine},
+        message=f"解析引擎已切换为: {engine}"
+    )

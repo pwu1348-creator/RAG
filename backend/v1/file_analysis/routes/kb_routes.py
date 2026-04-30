@@ -213,6 +213,7 @@ async def remove_file_from_kb(kb_id: str, doc_id: str):
     
     success = mysql_service.remove_document_from_kb(kb_id, doc_id)
     if success:
+        mysql_service.refresh_kb_statistics(kb_id)
         return success_response(message="File removed from knowledge base")
     else:
         return error_response("Failed to remove file", 500)

@@ -206,6 +206,7 @@
                     <div class="file-info">
                       <div class="file-name-row">
                         <span class="file-name">{{ file.filename }}</span>
+                        <span v-if="(file.kb_status || file.status) === 'completed' && file.total_chunks" class="file-chunks">{{ file.total_chunks }} 分块</span>
                         <span class="file-status" :class="file.kb_status || file.status">{{ 
                           (file.kb_status || file.status) === 'completed' ? '已完成' : 
                           (file.kb_status || file.status) === 'processing' ? '解析中' : 
@@ -1452,6 +1453,15 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.file-chunks {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  background: rgba(127, 205, 205, 0.15);
+  color: var(--primary-dark, #2d6a4f);
 }
 
 .file-status {
