@@ -561,8 +561,16 @@ class SearchService:
         use_hybrid: bool = True,
         use_rerank: bool = True,
         fetch_parents: bool = True,
+        use_kg: bool = True,
+        kg_weight: float = 0.3,
     ) -> List[Dict[str, Any]]:
-        """检索接口：返回父块（或子块）列表"""
+        """
+        检索接口：返回父块（或子块）列表
+        
+        Args:
+            use_kg: 是否使用知识图谱检索
+            kg_weight: 知识图谱结果的融合权重
+        """
         # 纯 BM25 降级模式
         if not use_hybrid:
             hybrid = self._pc_retriever.hybrid
@@ -573,7 +581,7 @@ class SearchService:
                 return self._pc_retriever._fetch_parents(children, knowledge_base_id, top_k)
             return children[:top_k]
 
-        # 完整流水线
+        # 完整流水线（混合检索）
         result = self._pc_retriever.search(
             query=query,
             knowledge_base_id=knowledge_base_id,
@@ -588,6 +596,31 @@ class SearchService:
             results = [r for r in results
                        if r.get("score", 0) >= min_score or r.get("avg_score", 0) >= min_score]
 
+        # 知识图谱融合（可选）
+        if use_kg:
+            try:
+                from core.kg_retriever import KGRetriever, KGHybridRetriever
+                
+                kg_retriever = KGRetriever()
+                kg_results = kg_retriever.search(
+                    query=query,
+                    knowledge_base_id=knowledge_base_id,
+                    top_k=top_k,
+                    use_hops=True,
+                )
+                
+                if kg_results:
+                    kg_hybrid = KGHybridRetriever()
+                    results = kg_hybrid.fuse_results(
+                        results,
+                        kg_results,
+                        kg_weight=kg_weight,
+                    )
+                    logger.info(f"[SearchService] KG 融合完成，融合后结果数={len(results)}")
+            
+            except Exception as e:
+                logger.warning(f"[SearchService] KG 融合失败: {e}，使用原始检索结果")
+        
         return results
 
     def reset(self):

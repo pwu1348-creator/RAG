@@ -7,6 +7,16 @@ Search & Ask 独立配置
 import os
 from dataclasses import dataclass, field
 from typing import List
+from pathlib import Path
+
+# 加载统一配置文件 backend/v1/.env（在 Config 实例化之前）
+_env_path = Path(__file__).parent.parent / ".env"
+if _env_path.exists():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_env_path, override=False)
+    except ImportError:
+        pass  # python-dotenv 未安装时跳过，使用代码默认值
 
 
 @dataclass
@@ -43,6 +53,25 @@ class LLMConfig:
     MODEL: str = "Qwen3-235B-A22B"
     TEMPERATURE: float = 0.7
     MAX_TOKENS: int = 2048
+    TOP_P: float = 0.7
+    TOP_K: int = 50
+    FREQUENCY_PENALTY: float = 1.0
+
+
+@dataclass
+class KnowledgeGraphConfig:
+    ENABLED: bool = True
+    BACKEND: str = "networkx"  # neo4j 或 networkx
+    NEO4J_URI: str = "bolt://localhost:7687"
+    NEO4J_USER: str = "neo4j"
+    NEO4J_PASSWORD: str = "pengpeng123"
+    NEO4J_DATABASE: str = "neo4j"
+    EXTRACTION_MODEL: str = "Qwen3-235B-A22B"
+    MIN_CONFIDENCE: float = 0.5
+    MAX_ENTITIES_PER_DOC: int = 50
+    MAX_RELATIONS_PER_DOC: int = 100
+    HOP_LIMIT: int = 2
+    GRAPH_PERSIST_DIR: str = "./kg_data"
 
 
 @dataclass
@@ -65,6 +94,7 @@ class Config:
         self.embedding = EmbeddingConfig()
         self.llm = LLMConfig()
         self.api = APIConfig()
+        self.kg = KnowledgeGraphConfig()
         self._load_from_env()
 
     def _load_from_env(self):
@@ -92,6 +122,19 @@ class Config:
         self.llm.MODEL = os.getenv('LLM_MODEL', self.llm.MODEL)
         self.llm.TEMPERATURE = float(os.getenv('LLM_TEMPERATURE', self.llm.TEMPERATURE))
         self.llm.MAX_TOKENS = int(os.getenv('LLM_MAX_TOKENS', self.llm.MAX_TOKENS))
+        self.llm.TOP_P = float(os.getenv('LLM_TOP_P', self.llm.TOP_P))
+        self.llm.TOP_K = int(os.getenv('LLM_TOP_K', self.llm.TOP_K))
+        self.llm.FREQUENCY_PENALTY = float(os.getenv('LLM_FREQUENCY_PENALTY', self.llm.FREQUENCY_PENALTY))
+
+        # Knowledge Graph 配置
+        self.kg.ENABLED = os.getenv('KG_ENABLED', 'True').lower() == 'true'
+        self.kg.BACKEND = os.getenv('KG_BACKEND', self.kg.BACKEND)
+        self.kg.NEO4J_URI = os.getenv('NEO4J_URI', self.kg.NEO4J_URI)
+        self.kg.NEO4J_USER = os.getenv('NEO4J_USER', self.kg.NEO4J_USER)
+        self.kg.NEO4J_PASSWORD = os.getenv('NEO4J_PASSWORD', self.kg.NEO4J_PASSWORD)
+        self.kg.NEO4J_DATABASE = os.getenv('NEO4J_DATABASE', self.kg.NEO4J_DATABASE)
+        self.kg.MIN_CONFIDENCE = float(os.getenv('KG_MIN_CONFIDENCE', self.kg.MIN_CONFIDENCE))
+        self.kg.HOP_LIMIT = int(os.getenv('KG_HOP_LIMIT', self.kg.HOP_LIMIT))
 
 
 config = Config()

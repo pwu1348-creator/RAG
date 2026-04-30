@@ -80,53 +80,56 @@
             <!-- 头像 -->
             <div class="msg-avatar">
               <div v-if="msg.role === 'user'" class="avatar user-avatar-icon">我</div>
-              <div v-else class="avatar bot-avatar-icon">
-                <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,12 11,11.75 11,15H13C13,12.75 16,12.5 16,10A4,4 0 0,0 12,6Z"/></svg>
-              </div>
+              <div v-else class="avatar bot-avatar-icon">AI助手</div>
             </div>
 
-            <!-- 气泡 -->
-            <div class="msg-bubble">
-              <!-- 正文 -->
-              <div class="msg-text" v-html="formatContent(msg)"></div>
-
-              <!-- 加载动画 -->
-              <div v-if="msg.streaming" class="typing-cursor"></div>
-
-              <!-- 错误 -->
-              <div v-if="msg.error" class="msg-error">{{ msg.error }}</div>
-
-              <!-- 引用来源 -->
-              <div v-if="msg.sources && msg.sources.length" class="msg-sources">
-                <div class="sources-title">
-                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"/></svg>
-                  参考来源
+            <!-- 气泡区域 -->
+            <div class="msg-bubble-wrap">
+              <!-- 思考链（仅 assistant） -->
+              <div v-if="msg.role === 'assistant' && (msg.thinking || msg.thinkingDone)" class="think-block">
+                <button class="think-toggle" @click="msg.thinkOpen = !msg.thinkOpen">
+                  <span v-if="!msg.thinkingDone" class="think-status thinking">
+                    <span class="think-dots-sm"><span></span><span></span><span></span></span>
+                    思考中
+                  </span>
+                  <span v-else class="think-status done">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M9,20.42L2.79,14.21L5.62,11.38L9,14.77L18.88,4.88L21.71,7.71L9,20.42Z"/></svg>
+                    思考结束
+                  </span>
+                  <svg class="think-chevron" :class="{ open: msg.thinkOpen }" viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg>
+                </button>
+                <div v-if="msg.thinkOpen" class="think-content">
+                  <div class="think-text" v-html="formatContent({ content: msg.thinking })"></div>
+                  <div v-if="!msg.thinkingDone" class="typing-cursor"></div>
                 </div>
-                <div class="sources-list">
-                  <div
-                    v-for="(src, si) in msg.sources"
-                    :key="si"
-                    class="source-chip"
-                  >
-                    <span class="source-doc">{{ src.doc_id?.slice(-8) || '--' }}</span>
-                    <span v-if="src.score" class="source-score">{{ (src.score * 100).toFixed(0) }}%</span>
+              </div>
+
+              <!-- 气泡 -->
+              <div class="msg-bubble" :class="msg.role">
+                <!-- 检索阶段（无 thinking 无 content）：三点等待 -->
+                <div v-if="msg.streaming && !msg.content && !msg.thinking" class="typing-dots"><span></span><span></span><span></span></div>
+                <!-- 思考结束、正式内容还未到达 -->
+                <div v-else-if="msg.streaming && !msg.content && msg.thinkingDone" class="typing-dots"><span></span><span></span><span></span></div>
+                <!-- 正式内容 -->
+                <div v-else class="msg-text" v-html="formatContent(msg)"></div>
+                <div v-if="msg.streaming && msg.content" class="typing-cursor"></div>
+                <!-- 错误 -->
+                <div v-if="msg.error" class="msg-error">{{ msg.error }}</div>
+                <!-- 引用来源 -->
+                <div v-if="msg.sources && msg.sources.length" class="msg-sources">
+                  <div class="sources-title">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"/></svg>
+                    参考来源
+                  </div>
+                  <div class="sources-list">
+                    <div v-for="(src, si) in msg.sources" :key="si" class="source-chip">
+                      <span class="source-doc">{{ src.doc_id?.slice(-8) || '--' }}</span>
+                      <span v-if="src.score" class="source-score">{{ (src.score * 100).toFixed(0) }}%</span>
+                    </div>
                   </div>
                 </div>
+                <span class="msg-time">{{ formatTime(msg.time) }}</span>
               </div>
-
-              <span class="msg-time">{{ formatTime(msg.time) }}</span>
-            </div>
-          </div>
-
-          <!-- 思考中指示器 -->
-          <div v-if="isStreaming && currentAssistantMsg" class="message-row bot">
-            <div class="msg-avatar">
-              <div class="avatar bot-avatar-icon">
-                <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,12 11,11.75 11,15H13C13,12.75 16,12.5 16,10A4,4 0 0,0 12,6Z"/></svg>
-              </div>
-            </div>
-            <div class="msg-bubble">
-              <div class="typing-dots"><span></span><span></span><span></span></div>
             </div>
           </div>
         </div>
@@ -230,7 +233,7 @@
 
 <!-- ================================================================== -->
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { knowledgeApi } from '../api/knowledge'
 import { streamAsk } from '../api/qa'
 
@@ -343,8 +346,12 @@ async function sendMessage() {
   saveMessages()
   await scrollBottom()
 
-  // 创建 assistant 占位消息
-  const assistantMsg = { role: 'assistant', content: '', time: Date.now(), streaming: true, sources: [] }
+  // 创建 assistant 占位消息（含思考链字段）
+  // 必须用 reactive() 包装，确保属性变更能触发 Vue 响应式更新
+  const assistantMsg = reactive({
+    role: 'assistant', content: '', time: Date.now(), streaming: true, sources: [],
+    thinking: '', thinkingDone: false, thinkOpen: false,
+  })
   messages.value.push(assistantMsg)
   currentAssistantMsg.value = assistantMsg
 
@@ -374,6 +381,8 @@ async function sendMessage() {
     const decoder = new TextDecoder()
     let buffer = ''
     let fullText = ''
+    // 已处理过的 base64 块数量，用于增量解码，避免重复拼接
+    let processedThinkChunks = 0
 
     while (true) {
       const { done, value } = await reader.read()
@@ -390,35 +399,65 @@ async function sendMessage() {
         fullText += payload
       }
 
-      // 从累积全文中提取 RAG_META（可能跨多个 SSE 块）
-      const metaMatch = fullText.match(/<!--RAG_META\s+([\s\S]*?)\s+RAG_META-->/)
+      // ── 增量解析思考链标记（\x01base64\x01 格式）──
+      const thinkRe = /\x01([A-Za-z0-9+/=]+)\x01/g
+      const allMatches = [...fullText.matchAll(thinkRe)]
+      // 只处理新增的块，用 TextDecoder 正确解码 UTF-8
+      for (let i = processedThinkChunks; i < allMatches.length; i++) {
+        try {
+          const bytes = Uint8Array.from(atob(allMatches[i][1]), c => c.charCodeAt(0))
+          assistantMsg.thinking += new TextDecoder('utf-8').decode(bytes)
+        } catch {}
+      }
+      processedThinkChunks = allMatches.length
+
+      // 有思考内容时先渲染"思考中"，再标记结束（延迟一帧让用户看到思考中状态）
+      if (fullText.includes('\x02THINK_END\x02') && !assistantMsg.thinkingDone) {
+        await nextTick()
+        await new Promise(r => setTimeout(r, 300))
+        assistantMsg.thinkingDone = true
+      }
+
+      // ── 去掉思考链标记，得到干净正文 ────────────────
+      let stripped = fullText
+        .replace(/\x01[A-Za-z0-9+/=]*\x01/g, '')
+        .replace(/\x02THINK_END\x02/g, '')
+
+      // ── 解析 RAG_META ────────────────────────────────
+      const metaMatch = stripped.match(/<!--RAG_META\s+([\s\S]*?)\s+RAG_META-->/)
       if (metaMatch) {
         try {
           const meta = JSON.parse(metaMatch[1])
           assistantMsg.sources = meta.citations || []
           assistantMsg.searchResults = meta.search_results || []
         } catch { /* parse error */ }
-        // 去掉 RAG_META 注释，只显示正文
-        assistantMsg.content = fullText.replace(/\n*<!--RAG_META[\s\S]*?RAG_META-->/, '').trimEnd()
+        assistantMsg.content = stripped.replace(/\n*<!--RAG_META[\s\S]*?RAG_META-->/, '').trimEnd()
       } else {
-        assistantMsg.content = fullText
+        assistantMsg.content = stripped
       }
 
       await nextTick()
       await scrollBottom()
     }
 
-    // 最终再做一次 RAG_META 清理（处理最后一批数据）
-    const finalMetaMatch = fullText.match(/<!--RAG_META\s+([\s\S]*?)\s+RAG_META-->/)
+    // 最终清理
+    let strippedFinal = fullText
+      .replace(/\x01[A-Za-z0-9+/=]*\x01/g, '')
+      .replace(/\x02THINK_END\x02/g, '')
+    const finalMetaMatch = strippedFinal.match(/<!--RAG_META\s+([\s\S]*?)\s+RAG_META-->/)
     if (finalMetaMatch) {
       try {
         const meta = JSON.parse(finalMetaMatch[1])
         assistantMsg.sources = meta.citations || []
         assistantMsg.searchResults = meta.search_results || []
       } catch { /* parse error */ }
-      assistantMsg.content = fullText.replace(/\n*<!--RAG_META[\s\S]*?RAG_META-->/, '').trimEnd()
+      assistantMsg.content = strippedFinal.replace(/\n*<!--RAG_META[\s\S]*?RAG_META-->/, '').trimEnd()
+    } else {
+      assistantMsg.content = strippedFinal
     }
-
+    if (!assistantMsg.thinkingDone && assistantMsg.thinking) {
+      assistantMsg.thinkingDone = true
+    }
     assistantMsg.streaming = false
   } catch (e) {
     if (e.name === 'AbortError') {
@@ -514,9 +553,42 @@ function autoResize() {
 // 生命周期
 // -----------------------------------------------------------------------
 
+// -----------------------------------------------------------------------
+// 欢迎消息（打字机效果，纯前端，不调用知识库）
+// -----------------------------------------------------------------------
+
+async function showWelcomeMessage() {
+  const welcomeText = '您好，欢迎使用 PengMind 智能问答！请在上方选择知识库，然后输入您的问题，我会基于知识库内容为您解答。'
+  const welcomeMsg = reactive({
+    role: 'assistant',
+    content: '',
+    time: Date.now(),
+    streaming: true,
+    sources: [],
+    thinking: '',
+    thinkingDone: false,
+    thinkOpen: false,
+  })
+  messages.value.push(welcomeMsg)
+  await nextTick()
+  await scrollBottom()
+
+  // 逐字打出
+  for (const char of welcomeText) {
+    welcomeMsg.content += char
+    await new Promise(r => setTimeout(r, 30))
+  }
+  welcomeMsg.streaming = false
+  saveMessages()
+}
+
 onMounted(() => {
   loadKBList()
   document.addEventListener('click', handleOutsideClick)
+  // 仅在没有历史消息时显示欢迎语
+  if (messages.value.length === 0) {
+    showWelcomeMessage()
+  }
 })
 
 onUnmounted(() => {
@@ -719,12 +791,26 @@ onUnmounted(() => {
 }
 
 .bot-avatar-icon {
-  background: linear-gradient(135deg, var(--earth), var(--earth-dark));
+  background: linear-gradient(135deg, #52b788, #2d6a4f);
   color: white;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  border-radius: 10px;
+  line-height: 1.2;
+  text-align: center;
+  padding: 2px;
 }
 
-.msg-bubble {
+/* 气泡包裹层（含思考链 + 气泡） */
+.msg-bubble-wrap {
+  display: flex;
+  flex-direction: column;
   max-width: 72%;
+}
+.message-row.user .msg-bubble-wrap { align-items: flex-end; }
+
+.msg-bubble {
+  width: 100%;
   padding: 14px 18px;
   border-radius: var(--radius-lg);
   background: rgba(255,255,255,0.95);
@@ -956,6 +1042,64 @@ onUnmounted(() => {
   padding: 4px 0;
   border-bottom: 1px solid rgba(229,115,115,0.1);
   word-break: break-all;
+}
+
+/* ---------- 思考链 ---------- */
+.think-block {
+  margin-bottom: 6px;
+}
+
+.think-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(168,230,207,0.12);
+  border: 1px solid rgba(168,230,207,0.35);
+  border-radius: 20px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #52b788;
+  transition: all 0.2s;
+  user-select: none;
+}
+.think-toggle:hover { background: rgba(168,230,207,0.22); border-color: #52b788; }
+
+.think-status { display: flex; align-items: center; gap: 5px; }
+.think-status.thinking { color: #74c69d; }
+.think-status.done { color: #2d6a4f; }
+
+.think-dots-sm { display: flex; gap: 3px; align-items: center; }
+.think-dots-sm span {
+  width: 5px; height: 5px; background: #74c69d; border-radius: 50%;
+  animation: typingBounce 1.4s infinite ease-in-out both;
+}
+.think-dots-sm span:nth-child(1) { animation-delay: -0.32s; }
+.think-dots-sm span:nth-child(2) { animation-delay: -0.16s; }
+
+.think-chevron {
+  color: #74c69d;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.think-chevron.open { transform: rotate(180deg); }
+
+.think-content {
+  margin-top: 6px;
+  padding: 10px 14px;
+  background: rgba(240,250,245,0.6);
+  border: 1px solid rgba(168,230,207,0.25);
+  border-radius: 10px;
+  opacity: 0.75;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.think-content:hover { opacity: 0.92; }
+
+.think-text {
+  font-size: 12px;
+  color: #52b788;
+  line-height: 1.7;
+  word-break: break-word;
+  font-family: 'Courier New', monospace;
 }
 
 /* ---------- 响应式 ---------- */

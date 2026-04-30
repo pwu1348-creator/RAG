@@ -19,3 +19,10 @@ datrie>=0.8.0
 
 # MySQL
 pymysql>=1.1.0
+
+# Knowledge Graph
+neo4j>=5.13.0
+
+# Graph processing
+networkx>=3.0
+json5>=0.9.0

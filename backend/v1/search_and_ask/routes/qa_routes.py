@@ -30,6 +30,8 @@ async def ask_endpoint(request: ChatRequest):
             is_write_mode=request.is_write_mode if request.is_write_mode is not None else False,
             max_context_chars=request.max_context_chars or 8000,
             use_rerank=request.use_rerank if request.use_rerank is not None else True,
+            use_kg=request.use_kg if request.use_kg is not None else True,
+            kg_weight=request.kg_weight or 0.3,
         )
     except Exception as e:
         logger.error(f"[Ask API] 问答失败: {e}", exc_info=True)
@@ -58,6 +60,8 @@ async def ask_stream_endpoint(request: ChatRequest):
             is_write_mode=request.is_write_mode if request.is_write_mode is not None else False,
             max_context_chars=request.max_context_chars or 8000,
             use_rerank=request.use_rerank if request.use_rerank is not None else True,
+            use_kg=request.use_kg if request.use_kg is not None else True,
+            kg_weight=request.kg_weight or 0.3,
         ):
             yield f"data: {chunk}\n\n"
 
@@ -81,6 +85,8 @@ async def writechat_endpoint(request: ChatRequest):
             is_write_mode=True,
             max_context_chars=request.max_context_chars or 8000,
             use_rerank=request.use_rerank if request.use_rerank is not None else True,
+            use_kg=request.use_kg if request.use_kg is not None else True,
+            kg_weight=request.kg_weight or 0.3,
         )
     except Exception as e:
         logger.error(f"[WriteChat API] 撰写问答失败: {e}", exc_info=True)
@@ -105,6 +111,8 @@ async def writechat_stream_endpoint(request: ChatRequest):
             is_write_mode=True,
             max_context_chars=request.max_context_chars or 8000,
             use_rerank=request.use_rerank if request.use_rerank is not None else True,
+            use_kg=request.use_kg if request.use_kg is not None else True,
+            kg_weight=request.kg_weight or 0.3,
         ):
             yield f"data: {chunk}\n\n"
 

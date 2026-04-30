@@ -114,7 +114,7 @@ async def list_kb_users(
 
 @router.post("/{kb_id}/users")
 async def add_user_to_kb(kb_id: str, request: AddUserToKBRequest):
-    result = admin_service.add_user_to_kb(kb_id, request.user_id, request.role)
+    result = admin_service.add_user_to_kb("system", request.user_id, kb_id, request.role)
     if result["success"]:
         return success_response(message="User added to knowledge base")
     else:
@@ -123,7 +123,7 @@ async def add_user_to_kb(kb_id: str, request: AddUserToKBRequest):
 
 @router.put("/{kb_id}/users/{user_id}")
 async def update_user_role(kb_id: str, user_id: str, request: UpdateUserRoleRequest):
-    result = admin_service.update_user_role(kb_id, user_id, request.role)
+    result = admin_service.update_user_kb_role("system", user_id, kb_id, request.role)
     if result["success"]:
         return success_response(message="User role updated")
     else:
@@ -132,7 +132,7 @@ async def update_user_role(kb_id: str, user_id: str, request: UpdateUserRoleRequ
 
 @router.delete("/{kb_id}/users/{user_id}")
 async def remove_user_from_kb(kb_id: str, user_id: str):
-    result = admin_service.remove_user_from_kb(kb_id, user_id)
+    result = admin_service.remove_user_from_kb("system", user_id, kb_id)
     if result["success"]:
         return success_response(message="User removed from knowledge base")
     else:
@@ -145,7 +145,7 @@ async def list_user_knowledge_bases(
     page: int = Query(1),
     size: int = Query(10)
 ):
-    result = admin_service.list_user_knowledge_bases(user_id, page, size)
+    result = admin_service.list_user_kbs(user_id, page, size)
     return success_response(data=result)
 
 

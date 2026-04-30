@@ -14,6 +14,8 @@ class SearchRequest(BaseModel):
     min_score: Optional[float] = 0.3
     use_hybrid: Optional[bool] = True
     use_rerank: Optional[bool] = True
+    use_kg: Optional[bool] = True
+    kg_weight: Optional[float] = 0.3
 
 
 class ChatRequest(BaseModel):
@@ -26,6 +28,8 @@ class ChatRequest(BaseModel):
     is_write_mode: Optional[bool] = False
     max_context_chars: Optional[int] = 8000
     use_rerank: Optional[bool] = True
+    use_kg: Optional[bool] = True
+    kg_weight: Optional[float] = 0.3
 
 
 class AskResponse(BaseModel):

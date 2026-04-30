@@ -1,8 +1,15 @@
 import os
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# 加载统一配置文件 backend/v1/.env
+_env_path = Path(__file__).parent.parent / ".env"
+if _env_path.exists():
+    from dotenv import load_dotenv
+    load_dotenv(_env_path, override=False)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

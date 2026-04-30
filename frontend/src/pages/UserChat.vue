@@ -4,8 +4,8 @@
     <aside class="sidebar" :class="{ collapsed: sidebarCollapsed }">
       <!-- 品牌 -->
       <div class="sidebar-brand">
-        <div class="brand-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"/></svg></div>
-        <span v-if="!sidebarCollapsed" class="brand-name">RAG 助手</span>
+        <div class="brand-icon"><img src="/images/生成马年专属 logo.png" alt="PengMind" class="brand-logo-img" /></div>
+        <span v-if="!sidebarCollapsed" class="brand-name">PengMind</span>
         <button class="collapse-btn" @click="sidebarCollapsed = !sidebarCollapsed">
           <svg viewBox="0 0 24 24" fill="currentColor" :style="sidebarCollapsed ? 'transform:rotate(180deg)' : ''"><path d="M15.41,7.41L14,6L8,12L14,18L15.41,16.59L10.83,12L15.41,7.41Z"/></svg>
         </button>
@@ -102,14 +102,35 @@
         <div v-for="(msg, i) in currentMessages" :key="i" class="msg-row" :class="msg.role">
           <div class="msg-avatar-wrap">
             <div v-if="msg.role === 'user'" class="msg-avatar user-av">{{ (userInfo.username || 'U')[0].toUpperCase() }}</div>
-            <div v-else class="msg-avatar bot-av">
-              <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,12 11,11.75 11,15H13C13,12.75 16,12.5 16,10A4,4 0 0,0 12,6Z"/></svg>
-            </div>
+            <div v-else class="msg-avatar bot-av">AI助手</div>
           </div>
           <div class="msg-content">
+            <!-- 思考链区域（仅 assistant 消息） -->
+            <div v-if="msg.role === 'assistant' && (msg.thinking || msg.thinkingDone)" class="think-block">
+              <button class="think-toggle" @click="toggleThink(msg)">
+                <span v-if="!msg.thinkingDone" class="think-status thinking">
+                  <span class="think-dots"><span></span><span></span><span></span></span>
+                  思考中
+                </span>
+                <span v-else class="think-status done">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M9,20.42L2.79,14.21L5.62,11.38L9,14.77L18.88,4.88L21.71,7.71L9,20.42Z"/></svg>
+                  思考结束
+                </span>
+                <svg class="think-chevron" :class="{ open: msg.thinkOpen }" viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg>
+              </button>
+              <div v-if="msg.thinkOpen" class="think-content">
+                <div class="think-text" v-html="renderText(msg.thinking)"></div>
+                <div v-if="!msg.thinkingDone" class="typing-cursor"></div>
+              </div>
+            </div>
             <div class="msg-bubble" :class="msg.role">
-              <div class="msg-text" v-html="renderText(msg.content)"></div>
-              <div v-if="msg.streaming" class="typing-cursor"></div>
+              <!-- 检索阶段（无 thinking 无 content）：三点等待动画 -->
+              <div v-if="msg.streaming && !msg.content && !msg.thinking" class="typing-dots"><span></span><span></span><span></span></div>
+              <!-- 思考结束、正式内容还未到达时：也显示三点 -->
+              <div v-else-if="msg.streaming && !msg.content && msg.thinkingDone" class="typing-dots"><span></span><span></span><span></span></div>
+              <!-- 正式内容 -->
+              <div v-else class="msg-text" v-html="renderText(msg.content)"></div>
+              <div v-if="msg.streaming && msg.content" class="typing-cursor"></div>
             </div>
             <div v-if="msg.sources && msg.sources.length" class="sources-row">
               <span class="sources-label">参考来源：</span>
@@ -123,9 +144,9 @@
           </div>
         </div>
 
-        <!-- 思考中 -->
-        <div v-if="isStreaming" class="msg-row bot">
-          <div class="msg-avatar-wrap"><div class="msg-avatar bot-av"><svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,12 11,11.75 11,15H13C13,12.75 16,12.5 16,10A4,4 0 0,0 12,6Z"/></svg></div></div>
+        <!-- 思考中占位行：仅在没有任何 assistant 消息正在 streaming 时才显示 -->
+        <div v-if="isStreaming && !currentMessages.some(m => m.role === 'assistant' && m.streaming)" class="msg-row bot">
+          <div class="msg-avatar-wrap"><div class="msg-avatar bot-av">AI助手</div></div>
           <div class="msg-content"><div class="msg-bubble bot"><div class="typing-dots"><span></span><span></span><span></span></div></div></div>
         </div>
       </div>
@@ -251,7 +272,7 @@ const assistantConfig = reactive({
 const kbList = ref([])
 async function loadKBList() {
   try {
-    const res = await axios.get('/api/knowledge-bases', {
+    const res = await axios.get('/api/v1/knowledge-bases', {
       params: { page: 1, size: 100 },
       headers: { Authorization: `Bearer ${userToken()}` },
     })
@@ -306,10 +327,42 @@ function saveSessions() {
   localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions.value))
 }
 
-function newChat() {
+async function newChat() {
   const id = Date.now().toString()
   sessions.value.unshift({ id, name: '新对话', messages: [] })
   currentSessionId.value = id
+  saveSessions()
+  // 新对话自动显示欢迎语（打字机效果，不调用知识库）
+  await nextTick()
+  showWelcomeMessage()
+}
+
+async function showWelcomeMessage() {
+  const name = userInfo.username || '同学'
+  const welcomeText = `您好，${name}！欢迎使用 PengMind 智能问答。请在左侧「助手设置」中选择知识库，然后输入您的问题，我会基于知识库内容为您解答。`
+  const welcomeMsg = reactive({
+    role: 'assistant',
+    content: '',
+    time: Date.now(),
+    streaming: true,
+    sources: [],
+    thinking: '',
+    thinkingDone: false,
+    thinkOpen: false,
+  })
+  // 直接推入当前会话
+  const s = sessions.value.find(s => s.id === currentSessionId.value)
+  if (!s) return
+  s.messages.push(welcomeMsg)
+  await nextTick()
+  await scrollBottom()
+
+  // 逐字打出
+  for (const char of welcomeText) {
+    welcomeMsg.content += char
+    await new Promise(r => setTimeout(r, 30))
+  }
+  welcomeMsg.streaming = false
   saveSessions()
 }
 
@@ -358,7 +411,12 @@ async function sendMessage() {
   if (inputRef.value) inputRef.value.style.height = 'auto'
   await scrollBottom()
 
-  const assistantMsg = { role: 'assistant', content: '', time: Date.now(), streaming: true, sources: [] }
+  const assistantMsg = reactive({
+    role: 'assistant', content: '', time: Date.now(), streaming: true, sources: [],
+    thinking: '',        // 思考链内容（实时累积）
+    thinkingDone: false, // 思考链是否结束
+    thinkOpen: false,    // 思考链面板是否展开
+  })
   pushMessage(assistantMsg)
   isStreaming.value = true
   const ctrl = new AbortController()
@@ -385,6 +443,9 @@ async function sendMessage() {
     const reader = resp.body.getReader()
     const decoder = new TextDecoder()
     let buf = '', full = ''
+    // 已处理过的 base64 块数量，用于增量解码，避免重复拼接
+    let processedThinkChunks = 0
+
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
@@ -395,19 +456,56 @@ async function sendMessage() {
         if (!t.startsWith('data: ')) continue
         full += t.slice(6)
       }
-      const m = full.match(/<!--RAG_META\s+([\s\S]*?)\s+RAG_META-->/)
+
+      // ── 增量解析思考链标记（\x01base64\x01 格式）──
+      const thinkRe = /\x01([A-Za-z0-9+/=]+)\x01/g
+      const allMatches = [...full.matchAll(thinkRe)]
+      // 只处理新增的块，用 TextDecoder 正确解码 UTF-8
+      for (let i = processedThinkChunks; i < allMatches.length; i++) {
+        try {
+          const bytes = Uint8Array.from(atob(allMatches[i][1]), c => c.charCodeAt(0))
+          assistantMsg.thinking += new TextDecoder('utf-8').decode(bytes)
+        } catch {}
+      }
+      processedThinkChunks = allMatches.length
+
+      // 有思考内容时先渲染"思考中"，再标记结束（延迟让用户看到思考中状态）
+      if (full.includes('\x02THINK_END\x02') && !assistantMsg.thinkingDone) {
+        await nextTick()
+        await new Promise(r => setTimeout(r, 300))
+        assistantMsg.thinkingDone = true
+      }
+
+      // 移除思考链标记，得到干净的正文流
+      let strippedFull = full
+        .replace(/\x01[A-Za-z0-9+/=]*\x01/g, '')
+        .replace(/\x02THINK_END\x02/g, '')
+
+      // ── 解析 RAG_META ────────────────────────────────
+      const m = strippedFull.match(/<!--RAG_META\s+([\s\S]*?)\s+RAG_META-->/)
       if (m) {
         try { const meta = JSON.parse(m[1]); assistantMsg.sources = meta.citations || [] } catch {}
-        assistantMsg.content = full.replace(/\n*<!--RAG_META[\s\S]*?RAG_META-->/, '').trimEnd()
+        assistantMsg.content = strippedFull.replace(/\n*<!--RAG_META[\s\S]*?RAG_META-->/, '').trimEnd()
       } else {
-        assistantMsg.content = full
+        assistantMsg.content = strippedFull
       }
+
       await nextTick(); await scrollBottom()
     }
-    const fm = full.match(/<!--RAG_META\s+([\s\S]*?)\s+RAG_META-->/)
+
+    // 最终清理
+    const strippedFinal = full
+      .replace(/\x01[A-Za-z0-9+/=]*\x01/g, '')
+      .replace(/\x02THINK_END\x02/g, '')
+    const fm = strippedFinal.match(/<!--RAG_META\s+([\s\S]*?)\s+RAG_META-->/)
     if (fm) {
       try { const meta = JSON.parse(fm[1]); assistantMsg.sources = meta.citations || [] } catch {}
-      assistantMsg.content = full.replace(/\n*<!--RAG_META[\s\S]*?RAG_META-->/, '').trimEnd()
+      assistantMsg.content = strippedFinal.replace(/\n*<!--RAG_META[\s\S]*?RAG_META-->/, '').trimEnd()
+    } else {
+      assistantMsg.content = strippedFinal
+    }
+    if (!assistantMsg.thinkingDone && assistantMsg.thinking) {
+      assistantMsg.thinkingDone = true
     }
     assistantMsg.streaming = false
   } catch (e) {
@@ -418,6 +516,11 @@ async function sendMessage() {
     isStreaming.value = false; abortCtrl.value = null
     saveSessions(); await scrollBottom()
   }
+}
+
+// ── 思考链折叠切换 ────────────────────────────────────
+function toggleThink(msg) {
+  msg.thinkOpen = !msg.thinkOpen
 }
 
 function autoResize() {
@@ -523,12 +626,19 @@ onMounted(async () => {
 }
 .brand-icon {
   width: 32px; height: 32px;
-  background: linear-gradient(135deg, #a8e6cf, #52b788);
   border-radius: 8px;
   display: flex; align-items: center; justify-content: center;
-  color: white; flex-shrink: 0;
+  flex-shrink: 0;
+  overflow: hidden;
 }
-.brand-icon svg { width: 18px; height: 18px; }
+.brand-logo-img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  border-radius: 8px;
+  pointer-events: none;
+  user-select: none;
+}
 .brand-name { font-size: 16px; font-weight: 700; color: #2d6a4f; flex: 1; white-space: nowrap; }
 .collapse-btn {
   background: none; border: none; cursor: pointer;
@@ -639,9 +749,19 @@ onMounted(async () => {
 .msg-row.user { flex-direction: row-reverse; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
-.msg-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; flex-shrink: 0; }
-.user-av { background: linear-gradient(135deg, #52b788, #2d6a4f); color: white; }
-.bot-av { background: linear-gradient(135deg, #a8e6cf, #74c69d); color: white; }
+.msg-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.user-av { background: linear-gradient(135deg, #52b788, #2d6a4f); color: white; font-size: 14px; }
+/* bot 头像：青绿色背景，白色"AI助手"文字，字体缩小以适配四个字 */
+.bot-av {
+  background: linear-gradient(135deg, #52b788, #2d6a4f);
+  color: white;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  border-radius: 10px;
+  line-height: 1.2;
+  text-align: center;
+  padding: 2px;
+}
 
 .msg-content { display: flex; flex-direction: column; max-width: 72%; }
 .msg-row.user .msg-content { align-items: flex-end; }
@@ -760,6 +880,69 @@ onMounted(async () => {
 .profile-msg { padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
 .profile-msg.ok { background: rgba(82,183,136,0.1); color: #2d6a4f; }
 .profile-msg.err { background: rgba(239,68,68,0.08); color: #ef4444; }
+
+/* ── 思考链 ── */
+.think-block {
+  margin-bottom: 6px;
+  max-width: 100%;
+}
+
+.think-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(168,230,207,0.12);
+  border: 1px solid rgba(168,230,207,0.35);
+  border-radius: 20px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #52b788;
+  transition: all 0.2s;
+  user-select: none;
+}
+.think-toggle:hover { background: rgba(168,230,207,0.22); border-color: #52b788; }
+
+.think-status { display: flex; align-items: center; gap: 5px; }
+.think-status.thinking { color: #74c69d; }
+.think-status.done { color: #2d6a4f; }
+
+/* 思考中的三点动画（复用 typing-dots 样式但更小） */
+.think-dots { display: flex; gap: 3px; align-items: center; }
+.think-dots span {
+  width: 5px; height: 5px; background: #74c69d; border-radius: 50%;
+  animation: bounce 1.4s infinite ease-in-out both;
+}
+.think-dots span:nth-child(1){animation-delay:-0.32s}
+.think-dots span:nth-child(2){animation-delay:-0.16s}
+
+.think-chevron {
+  color: #74c69d;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.think-chevron.open { transform: rotate(180deg); }
+
+.think-content {
+  margin-top: 6px;
+  padding: 10px 14px;
+  background: rgba(240,250,245,0.6);
+  border: 1px solid rgba(168,230,207,0.25);
+  border-radius: 10px;
+  /* 半透明效果 */
+  opacity: 0.75;
+  max-height: 260px;
+  overflow-y: auto;
+  transition: max-height 0.25s ease;
+}
+.think-content:hover { opacity: 0.92; }
+
+.think-text {
+  font-size: 12px;
+  color: #52b788;
+  line-height: 1.7;
+  word-break: break-word;
+  font-family: 'Courier New', monospace;
+}
+.think-text :deep(code) { background: rgba(168,230,207,0.2); padding: 1px 4px; border-radius: 3px; }
 
 /* ── 面板动画 ── */
 .panel-enter-active, .panel-leave-active { transition: opacity 0.25s; }

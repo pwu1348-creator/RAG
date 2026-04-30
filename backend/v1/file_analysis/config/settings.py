@@ -1,6 +1,16 @@
 import os
 from dataclasses import dataclass, field
 from typing import List, Dict, Any
+from pathlib import Path
+
+# 加载统一配置文件 backend/v1/.env（在 Config 实例化之前）
+_env_path = Path(__file__).parent.parent.parent / ".env"
+if _env_path.exists():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_env_path, override=False)
+    except ImportError:
+        pass  # python-dotenv 未安装时跳过，使用代码默认值
 
 
 @dataclass
@@ -82,9 +92,9 @@ class AdminConfig:
 
 @dataclass
 class JWTConfig:
-    SECRET_KEY: str = "pengpeng-rag-jwt-secret-key-2024"
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_HOURS: int = 24
+    SECRET_KEY: str = field(default_factory=lambda: os.getenv('JWT_SECRET_KEY', 'pengpeng-rag-jwt-secret-key-2024'))
+    ALGORITHM: str = field(default_factory=lambda: os.getenv('JWT_ALGORITHM', 'HS256'))
+    ACCESS_TOKEN_EXPIRE_HOURS: int = field(default_factory=lambda: int(os.getenv('JWT_EXPIRE_HOURS', '24')))
 
 
 @dataclass
@@ -116,6 +126,7 @@ class Config:
         self.api = APIConfig()
         self.model = ModelConfig()
         self.admin = AdminConfig()
+        self.jwt = JWTConfig()
         self._load_from_env()
     
     def _load_from_env(self):
@@ -150,6 +161,11 @@ class Config:
         self.admin.DEFAULT_USERNAME = os.getenv('ADMIN_DEFAULT_USERNAME', self.admin.DEFAULT_USERNAME)
         self.admin.DEFAULT_PASSWORD = os.getenv('ADMIN_DEFAULT_PASSWORD', self.admin.DEFAULT_PASSWORD)
         self.admin.DEFAULT_EMAIL = os.getenv('ADMIN_DEFAULT_EMAIL', self.admin.DEFAULT_EMAIL)
+
+        # JWT 配置
+        self.jwt.SECRET_KEY = os.getenv('JWT_SECRET_KEY', self.jwt.SECRET_KEY)
+        self.jwt.ALGORITHM = os.getenv('JWT_ALGORITHM', self.jwt.ALGORITHM)
+        self.jwt.ACCESS_TOKEN_EXPIRE_HOURS = int(os.getenv('JWT_EXPIRE_HOURS', self.jwt.ACCESS_TOKEN_EXPIRE_HOURS))
 
 
 config = Config()

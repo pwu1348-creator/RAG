@@ -18,23 +18,17 @@ from utils.logger import logger
 # Prompt 模板
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PROMPT_QA = """你是一个专业的文档问答助手。请根据提供的检索结果回答用户问题。
+_SYSTEM_PROMPT_QA = """你是基于知识库检索的RAG问答助手，必须严格遵守以下规则：
+1. 仅依据检索到的知识库内容回答用户问题；
+2. 若用户输入为打招呼、闲聊、无意义语句、与知识库内容完全不相关的问题，**统一固定输出：当前问题不在知识库范围内，无法为您解答**
+3. 禁止编造知识库以外的内容，禁止随意闲聊、回答无关常识问题；
+4. 不解释理由、不额外多说废话，命中无关场景直接输出指定固定文案即可。"""
 
-要求：
-1. 仅使用提供的检索结果中的信息
-2. 回答要准确、简洁、专业
-3. 如果检索结果无法回答问题，请明确说明
-4. 引用相关段落的来源（doc_id 和 chunk_index）
-5. 使用中文回答"""
-
-_SYSTEM_PROMPT_WRITE = """你是一个专业的文档撰写助手。请根据提供的检索结果帮助用户撰写文档内容。
-
-要求：
-1. 仅使用提供的检索结果中的信息
-2. 内容要专业、准确、有逻辑性
-3. 引用相关段落的来源（doc_id 和 chunk_index）
-4. 使用中文回答
-5. 可以适当扩展和组织内容"""
+_SYSTEM_PROMPT_WRITE = """你是基于知识库检索的RAG问答助手，必须严格遵守以下规则：
+1. 仅依据检索到的知识库内容回答用户问题；
+2. 若用户输入为打招呼、闲聊、无意义语句、与知识库内容完全不相关的问题，**统一固定输出：当前问题不在知识库范围内，无法为您解答**
+3. 禁止编造知识库以外的内容，禁止随意闲聊、回答无关常识问题；
+4. 不解释理由、不额外多说废话，命中无关场景直接输出指定固定文案即可。"""
 
 
 class QuestionAnswering:
@@ -151,6 +145,8 @@ class QuestionAnswering:
         is_write_mode: bool = False,
         max_context_chars: int = 8000,
         use_rerank: bool = True,
+        use_kg: bool = True,
+        kg_weight: float = 0.3,
     ) -> Dict[str, Any]:
         """标准问答（非流式），返回 {"answer", "citations", "search_results", "timestamp"}"""
         try:
@@ -161,6 +157,8 @@ class QuestionAnswering:
                 min_score=min_score,
                 use_rerank=use_rerank,
                 fetch_parents=True,
+                use_kg=use_kg,
+                kg_weight=kg_weight,
             )
 
             context = self._build_context(results, max_context_chars)
@@ -199,6 +197,8 @@ class QuestionAnswering:
         is_write_mode: bool = False,
         max_context_chars: int = 8000,
         use_rerank: bool = True,
+        use_kg: bool = True,
+        kg_weight: float = 0.3,
     ) -> AsyncGenerator[str, None]:
         """流式问答，末尾附 RAG_META 元数据"""
         try:
@@ -209,6 +209,8 @@ class QuestionAnswering:
                 min_score=min_score,
                 use_rerank=use_rerank,
                 fetch_parents=True,
+                use_kg=use_kg,
+                kg_weight=kg_weight,
             )
 
             context = self._build_context(results, max_context_chars)
@@ -233,24 +235,40 @@ class QuestionAnswering:
     # LLM 调用（使用 AsyncOpenAI）
     # ==================================================================
 
+    def _build_request_body(self, messages: List[Dict[str, str]], stream: bool) -> dict:
+        """构建符合 Gitee AI 规范的请求体"""
+        body: dict = {
+            "model": config.llm.MODEL,
+            "messages": messages,
+            "stream": stream,
+            "max_tokens": config.llm.MAX_TOKENS,
+            # 降低随机性，让模型严格遵守 system prompt 指令
+            "temperature": 0.1,
+            "top_p": 0.8,
+            "n": 1,
+            # 开启 Qwen3 思考链，reasoning_content 由前端单独渲染
+            "enable_thinking": True,
+        }
+        # frequency_penalty 仅在非零时传入，避免部分模型（如 DeepSeek）因该字段返回 400
+        if config.llm.FREQUENCY_PENALTY != 0:
+            body["frequency_penalty"] = config.llm.FREQUENCY_PENALTY
+        return body
+
     async def _call_llm(self, messages: List[Dict[str, str]]) -> str:
-        """调用 LLM（非流式）"""
+        """调用 LLM（非流式，httpx 直接请求）"""
+        import httpx
+        url = f"{config.llm.BASE_URL.rstrip('/')}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config.llm.API_KEY}",
+        }
+        body = self._build_request_body(messages, stream=False)
         try:
-            from openai import AsyncOpenAI
-
-            client = AsyncOpenAI(
-                base_url=config.llm.BASE_URL,
-                api_key=config.llm.API_KEY,
-            )
-
-            response = await client.chat.completions.create(
-                model=config.llm.MODEL,
-                messages=messages,
-                temperature=config.llm.TEMPERATURE,
-                max_tokens=config.llm.MAX_TOKENS,
-            )
-            return response.choices[0].message.content or ""
-
+            async with httpx.AsyncClient(timeout=120) as client:
+                resp = await client.post(url, headers=headers, json=body)
+                resp.raise_for_status()
+                data = resp.json()
+                return data["choices"][0]["message"]["content"] or ""
         except Exception as e:
             logger.error(f"[QuestionAnswering] LLM 调用失败: {e}")
             return "抱歉，生成回答时出现错误。"
@@ -258,30 +276,58 @@ class QuestionAnswering:
     async def _call_llm_stream(
         self, messages: List[Dict[str, str]]
     ) -> AsyncGenerator[str, None]:
-        """调用 LLM（流式）"""
+        """调用 LLM（流式，httpx 直接请求 SSE）"""
+        import httpx
+        url = f"{config.llm.BASE_URL.rstrip('/')}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config.llm.API_KEY}",
+            "Accept": "text/event-stream",
+        }
+        body = self._build_request_body(messages, stream=True)
         try:
-            from openai import AsyncOpenAI
+            async with httpx.AsyncClient(timeout=120) as client:
+                async with client.stream("POST", url, headers=headers, json=body) as resp:
+                    if resp.status_code != 200:
+                        err = await resp.aread()
+                        raise RuntimeError(f"HTTP {resp.status_code}: {err.decode(errors='replace')}")
+                    thinking_ended = False
+                    async for line in resp.aiter_lines():
+                        line = line.strip()
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            if not thinking_ended:
+                                # 通知思考结束（路由层会统一加 data: 前缀）
+                                yield "\x02THINK_END\x02"
+                                thinking_ended = True
+                            break
+                        try:
+                            import json as _json
+                            chunk = _json.loads(data_str)
+                            delta = chunk["choices"][0].get("delta", {})
+                            reasoning = delta.get("reasoning_content") or ""
+                            content = delta.get("content") or ""
 
-            client = AsyncOpenAI(
-                base_url=config.llm.BASE_URL,
-                api_key=config.llm.API_KEY,
-            )
+                            # 思考链内容：用 \x01 包裹（不会出现在正文中），前端单独渲染
+                            if reasoning:
+                                # 对 reasoning 内容做 base64 编码，避免换行破坏 SSE 格式
+                                import base64 as _b64
+                                encoded = _b64.b64encode(reasoning.encode()).decode()
+                                yield f"\x01{encoded}\x01"
 
-            stream = await client.chat.completions.create(
-                model=config.llm.MODEL,
-                messages=messages,
-                temperature=config.llm.TEMPERATURE,
-                max_tokens=config.llm.MAX_TOKENS,
-                stream=True,
-            )
-
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
-
+                            # 正式回答内容：思考链结束时先发结束标记
+                            if content:
+                                if not thinking_ended:
+                                    yield "\x02THINK_END\x02"
+                                    thinking_ended = True
+                                yield content
+                        except Exception:
+                            continue
         except Exception as e:
             logger.error(f"[QuestionAnswering] LLM 流式调用失败: {e}")
-            yield ""
+            yield f"\n\n抱歉，生成回答时出现错误：{str(e)}"
 
     # ==================================================================
     # 引用

@@ -27,11 +27,9 @@
         <div class="form-inner">
           <div class="brand">
             <div class="brand-icon">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"/>
-              </svg>
+              <img src="/images/生成马年专属 logo.png" alt="PengMind Logo" class="brand-logo-img" />
             </div>
-            <span class="brand-name">RAG 知识库</span>
+            <span class="brand-name">PengMind</span>
           </div>
 
           <h2 class="form-title">用户登录</h2>
@@ -364,13 +362,19 @@ onUnmounted(() => {
 
 .brand-icon {
   width: 36px; height: 36px;
-  background: linear-gradient(135deg, #a8e6cf, #52b788);
   border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
-  color: white;
+  overflow: hidden;
 }
 
-.brand-icon svg { width: 20px; height: 20px; }
+.brand-logo-img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  border-radius: 10px;
+  pointer-events: none;
+  user-select: none;
+}
 
 .brand-name {
   font-size: 18px;
@@ -447,6 +451,16 @@ onUnmounted(() => {
 }
 
 .input-box input::placeholder { color: #b7e4c7; }
+
+/* 隐藏浏览器（Chrome/Edge/Safari）原生密码显示眼睛按钮 */
+.input-box input[type="password"]::-ms-reveal,
+.input-box input[type="password"]::-ms-clear {
+  display: none;
+}
+.input-box input[type="password"]::-webkit-credentials-auto-fill-button,
+.input-box input[type="password"]::-webkit-textfield-decoration-container {
+  display: none !important;
+}
 
 .eye-btn {
   background: none;
