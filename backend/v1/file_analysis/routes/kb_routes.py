@@ -21,6 +21,7 @@ class CreateKBRequest(BaseModel):
     embedding_model: Optional[str] = None
     vector_dimension: int = 1024
     owner_id: Optional[str] = None
+    owner_type: Optional[str] = None  # 'user' | 'department' | 'admin'
 
 
 class UpdateKBRequest(BaseModel):
@@ -57,7 +58,8 @@ async def create_knowledge_base(request: CreateKBRequest):
         description=request.description,
         embedding_model=request.embedding_model,
         vector_dimension=request.vector_dimension,
-        owner_id=request.owner_id
+        owner_id=request.owner_id,
+        owner_type=request.owner_type
     )
     if result["success"]:
         return success_response(data=result, message="Knowledge base created")

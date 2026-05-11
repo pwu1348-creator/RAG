@@ -133,11 +133,21 @@
               <div v-if="msg.streaming && msg.content" class="typing-cursor"></div>
             </div>
             <div v-if="msg.sources && msg.sources.length" class="sources-row">
-              <span class="sources-label">参考来源：</span>
-              <span v-for="(s,si) in msg.sources" :key="si" class="source-tag">
-                {{ s.doc_id?.slice(-6) || '--' }}
-                <span v-if="s.score" class="source-score">{{ (s.score*100).toFixed(0) }}%</span>
-              </span>
+              <div class="sources-trigger">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/></svg>
+                参考来源 ({{ msg.sources.length }})
+                <div class="sources-popup">
+                  <div class="popup-title">检索到的相关段落</div>
+                  <div v-for="(src, si) in msg.sources" :key="si" class="popup-chunk">
+                    <div class="popup-chunk-header">
+                      <span class="popup-chunk-idx">段落 {{ si + 1 }}</span>
+                      <span v-if="src.score" class="popup-chunk-score">{{ (src.score * 100).toFixed(0) }}%</span>
+                      <span v-if="src.page_idx" class="popup-chunk-page">P{{ src.page_idx }}</span>
+                    </div>
+                    <div class="popup-chunk-text">{{ src.content_preview || '无内容' }}</div>
+                  </div>
+                </div>
+              </div>
             </div>
             <div v-if="msg.error" class="msg-error">{{ msg.error }}</div>
             <span class="msg-time">{{ fmtTime(msg.time) }}</span>
@@ -208,6 +218,22 @@
         </div>
       </div>
     </Transition>
+
+    <!-- 参考来源 Tooltip -->
+    <div
+      v-if="sourceTooltip.visible"
+      class="source-tooltip"
+      :style="{ top: sourceTooltip.y + 'px', left: sourceTooltip.x + 'px' }"
+    >
+      <div class="tooltip-header">
+        <span class="tooltip-label">检索段落</span>
+        <span v-if="sourceTooltip.data.score" class="tooltip-score">相关度 {{ (sourceTooltip.data.score * 100).toFixed(0) }}%</span>
+      </div>
+      <div class="tooltip-content">{{ sourceTooltip.data.content_preview || '无内容' }}</div>
+      <div class="tooltip-meta">
+        <span v-if="sourceTooltip.data.page_idx">页码: {{ sourceTooltip.data.page_idx }}</span>
+      </div>
+    </div>
 
     <!-- 个人信息面板 -->
     <Transition name="panel">
@@ -569,6 +595,21 @@ function fmtTime(ts) {
   return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
+// ── 参考来源 Tooltip ──────────────────────────────────
+const sourceTooltip = reactive({ visible: false, x: 0, y: 0, data: {} })
+
+function showSourceTooltip(event, source) {
+  const rect = event.target.getBoundingClientRect()
+  sourceTooltip.x = rect.left
+  sourceTooltip.y = rect.bottom + 8
+  sourceTooltip.data = source
+  sourceTooltip.visible = true
+}
+
+function hideSourceTooltip() {
+  sourceTooltip.visible = false
+}
+
 // ── 面板 ──────────────────────────────────────────────
 const showAssistantPanel = ref(false)
 const showProfilePanel = ref(false)
@@ -803,10 +844,54 @@ onMounted(async () => {
 .typing-dots span:nth-child(2){animation-delay:-0.16s}
 @keyframes bounce { 0%,80%,100%{transform:scale(0.6);opacity:0.4} 40%{transform:scale(1);opacity:1} }
 
-.sources-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
-.sources-label { font-size: 11px; color: #74c69d; }
-.source-tag { display: flex; align-items: center; gap: 4px; padding: 3px 8px; background: rgba(168,230,207,0.2); border-radius: 6px; font-size: 11px; color: #52b788; font-family: monospace; }
-.source-score { color: #2d6a4f; font-weight: 600; }
+.sources-row { margin-top: 8px; }
+
+/* ── 参考来源 hover 弹窗 ── */
+.sources-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(168,230,207,0.15);
+  border: 1px solid rgba(168,230,207,0.4);
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #2d6a4f;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.sources-trigger:hover { background: rgba(168,230,207,0.3); border-color: #52b788; }
+.sources-trigger svg { flex-shrink: 0; color: #52b788; }
+
+.sources-popup {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  width: 400px;
+  max-height: 340px;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid rgba(168,230,207,0.4);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.15), 0 4px 12px rgba(0,0,0,0.08);
+  padding: 16px;
+  z-index: 9999;
+  animation: popupIn 0.15s ease;
+}
+.sources-trigger:hover .sources-popup { display: block; }
+@keyframes popupIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.popup-title { font-size: 13px; font-weight: 600; color: #1b4332; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(168,230,207,0.3); }
+.popup-chunk { margin-bottom: 12px; padding: 10px 12px; background: rgba(240,250,245,0.6); border: 1px solid rgba(168,230,207,0.2); border-radius: 8px; }
+.popup-chunk:last-child { margin-bottom: 0; }
+.popup-chunk-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.popup-chunk-idx { font-size: 11px; font-weight: 600; color: #2d6a4f; }
+.popup-chunk-score { font-size: 10px; color: #52b788; background: rgba(168,230,207,0.3); padding: 1px 6px; border-radius: 8px; }
+.popup-chunk-page { font-size: 10px; color: #74c69d; }
+.popup-chunk-text { font-size: 12px; color: #1b4332; line-height: 1.6; word-break: break-word; }
 .msg-error { font-size: 12px; color: #ef4444; margin-top: 4px; }
 .msg-time { font-size: 11px; color: #b7e4c7; margin-top: 4px; }
 

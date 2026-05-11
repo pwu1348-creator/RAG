@@ -24,7 +24,11 @@ class ChromaDBConfig:
     HOST: str = ""
     PORT: int = 8000
     COLLECTION_NAME: str = "document_chunks"
-    PERSIST_DIRECTORY: str = "./chroma_db"
+    # 指向 file_analysis 的 chroma_db，确保两个服务共享同一数据库
+    PERSIST_DIRECTORY: str = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "file_analysis", "chroma_db"
+    )
 
 
 @dataclass
@@ -56,6 +60,13 @@ class LLMConfig:
     TOP_P: float = 0.7
     TOP_K: int = 50
     FREQUENCY_PENALTY: float = 1.0
+
+
+@dataclass
+class RerankerConfig:
+    BASE_URL: str = "https://ai.gitee.com/v1/sentence-similarity"
+    API_KEY: str = "MG6HEPE9JFLDHXJYUR0S6BNA5CUAX7X9N99KLPU4"
+    MODEL: str = "bge-reranker-v2-m3"
 
 
 @dataclass
@@ -93,6 +104,7 @@ class Config:
         self.mysql = MySQLConfig()
         self.embedding = EmbeddingConfig()
         self.llm = LLMConfig()
+        self.reranker = RerankerConfig()
         self.api = APIConfig()
         self.kg = KnowledgeGraphConfig()
         self._load_from_env()
@@ -125,6 +137,11 @@ class Config:
         self.llm.TOP_P = float(os.getenv('LLM_TOP_P', self.llm.TOP_P))
         self.llm.TOP_K = int(os.getenv('LLM_TOP_K', self.llm.TOP_K))
         self.llm.FREQUENCY_PENALTY = float(os.getenv('LLM_FREQUENCY_PENALTY', self.llm.FREQUENCY_PENALTY))
+
+        # Reranker 配置
+        self.reranker.BASE_URL = os.getenv('RERANKER_BASE_URL', self.reranker.BASE_URL)
+        self.reranker.API_KEY = os.getenv('RERANKER_API_KEY', self.reranker.API_KEY)
+        self.reranker.MODEL = os.getenv('RERANKER_MODEL', self.reranker.MODEL)
 
         # Knowledge Graph 配置
         self.kg.ENABLED = os.getenv('KG_ENABLED', 'True').lower() == 'true'

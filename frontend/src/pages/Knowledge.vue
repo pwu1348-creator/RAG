@@ -56,7 +56,7 @@
                   </td>
                   <td class="kb-desc-cell">{{ kb.description }}</td>
                   <td>{{ kb.docCount }}</td>
-                  <td>{{ kb.ownerType === 'admin' ? '管理员' : (kb.ownerId || '-') }}</td>
+                  <td>{{ formatOwner(kb) }}</td>
                   <td>{{ kb.updateTime }}</td>
                   <td>
                     <div class="action-buttons">
@@ -161,11 +161,17 @@
                 </div>
                 <div class="form-group">
                   <label>知识库所有者</label>
-                  <select v-model="newKB.owner_id" class="owner-select">
-                    <option value="">管理员</option>
-                    <option value="user1">用户1</option>
-                    <option value="user2">用户2</option>
-                    <option value="user3">用户3</option>
+                  <select v-model="ownerSelection" class="owner-select" @change="handleOwnerChange">
+                    <optgroup label="用户" v-if="ownerUsers.length > 0">
+                      <option v-for="u in ownerUsers" :key="u.user_id" :value="'user:' + u.user_id">
+                        {{ u.username }}{{ u.real_name ? ' (' + u.real_name + ')' : '' }}{{ u.department ? ' - ' + u.department : '' }}
+                      </option>
+                    </optgroup>
+                    <optgroup label="部门" v-if="ownerDepartments.length > 0">
+                      <option v-for="dept in ownerDepartments" :key="dept.id" :value="'department:' + dept.id">
+                        {{ dept.name }}（{{ (dept.memberUsernames || []).length }} 人）
+                      </option>
+                    </optgroup>
                   </select>
                 </div>
               </div>
@@ -343,14 +349,60 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { knowledgeApi } from '../api/knowledge'
+import { adminApi } from '../api/admin'
 
 const knowledgeBases = ref([])
 const loading = ref(false)
 const showCreateModal = ref(false)
-const newKB = ref({ name: '', description: '', owner_id: '' })
+const newKB = ref({ name: '', description: '', owner_id: '', owner_type: '' })
 const currentKB = ref(null)
+
+// ── 所有者选择相关 ──────────────────────────────────────
+const ownerSelection = ref('')  // 格式: "type:id"
+const ownerUsers = ref([])
+const ownerDepartments = ref([])
+
+const loadOwnerOptions = async () => {
+  // 加载用户列表
+  try {
+    const res = await adminApi.getUserList({ page: 1, size: 200 })
+    if (res.code === 200 && res.data && res.data.users) {
+      ownerUsers.value = res.data.users.filter(u => u.status === 'active')
+    }
+  } catch (err) {
+    console.error('Failed to load users for owner select:', err)
+  }
+  // 加载部门列表（从 localStorage）
+  try {
+    const raw = localStorage.getItem('rag_departments')
+    ownerDepartments.value = raw ? JSON.parse(raw) : []
+  } catch {
+    ownerDepartments.value = []
+  }
+}
+
+const handleOwnerChange = () => {
+  if (!ownerSelection.value) {
+    newKB.value.owner_id = ''
+    newKB.value.owner_type = ''
+    return
+  }
+  const [type, id] = ownerSelection.value.split(':')
+  newKB.value.owner_id = id
+  newKB.value.owner_type = type  // 'user' 或 'department'
+}
+
+// 打开创建弹窗时加载所有者选项
+watch(showCreateModal, (val) => {
+  if (val) {
+    ownerSelection.value = ''
+    newKB.value.owner_id = ''
+    newKB.value.owner_type = ''
+    loadOwnerOptions()
+  }
+})
 
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -447,11 +499,13 @@ const handleCreateKB = async () => {
     }
     if (newKB.value.owner_id) {
       params.owner_id = newKB.value.owner_id
+      params.owner_type = newKB.value.owner_type
     }
     await knowledgeApi.create(params)
     showNotification('知识库创建成功', 'success')
     showCreateModal.value = false
-    newKB.value = { name: '', description: '', owner_id: '' }
+    newKB.value = { name: '', description: '', owner_id: '', owner_type: '' }
+    ownerSelection.value = ''
     await loadKnowledgeBases()
   } catch (err) {
     console.error('Failed to create knowledge base:', err)
@@ -532,6 +586,29 @@ const getColorByIndex = (index) => {
     'linear-gradient(135deg, #e8d5c4 0%, #d4c4b0 100%)',
   ]
   return colors[index % colors.length]
+}
+
+const formatOwner = (kb) => {
+  if (kb.ownerType === 'admin' || !kb.ownerId || kb.ownerId === 'system') {
+    return '管理员'
+  }
+  if (kb.ownerType === 'department') {
+    // 尝试从 localStorage 查找部门名称
+    try {
+      const raw = localStorage.getItem('rag_departments')
+      const depts = raw ? JSON.parse(raw) : []
+      const dept = depts.find(d => d.id === kb.ownerId)
+      if (dept) return `部门: ${dept.name}`
+    } catch {}
+    return `部门: ${kb.ownerId}`
+  }
+  if (kb.ownerType === 'user') {
+    // 尝试从已加载的用户列表中查找
+    const user = ownerUsers.value.find(u => u.user_id === kb.ownerId)
+    if (user) return `用户: ${user.username}`
+    return `用户: ${kb.ownerId}`
+  }
+  return kb.ownerId || '-'
 }
 
 const openKBFiles = async (kb) => {
@@ -708,6 +785,8 @@ const confirmLinkDept = () => {
 
 onMounted(() => {
   loadKnowledgeBases()
+  // 预加载用户列表，用于所有者列显示用户名
+  loadOwnerOptions()
 })
 </script>
 

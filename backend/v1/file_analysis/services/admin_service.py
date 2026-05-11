@@ -262,13 +262,15 @@ class AdminService:
 
     def create_knowledge_base(self, admin_id: str, name: str, description: str = None,
                               embedding_model: str = None, vector_dimension: int = 1024,
-                              owner_id: str = None) -> Dict[str, Any]:
+                              owner_id: str = None, owner_type: str = None) -> Dict[str, Any]:
         from config import config
 
         kb_id = self.db.generate_id()
         index_id = f"kb_{kb_id}_{int(datetime.now().timestamp())}"
 
-        owner_type = 'user' if owner_id else 'admin'
+        # owner_type 优先使用前端传入的值，否则自动推断
+        if not owner_type:
+            owner_type = 'user' if owner_id else 'admin'
         actual_owner_id = owner_id if owner_id else admin_id
 
         success = self.db.create_knowledge_base(

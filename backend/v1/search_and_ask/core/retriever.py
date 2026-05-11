@@ -125,30 +125,16 @@ class RerankResult:
 
 class Reranker:
     """
-    BGE Reranker 封装。
+    Reranker 封装 — 使用 Gitee AI 在线 API（sentence-similarity）。
 
-    使用 bge-reranker-base 对候选子块做精确相关性重排序。
-    延迟加载：首次调用时下载/加载模型，启动时不阻塞。
+    调用 Gitee AI 的 bge-reranker-v2-m3 模型对候选子块做相关性重排序。
+    无需下载本地模型，直接走 HTTP API。
     """
 
-    def __init__(self, model_name: str = "BAAI/bge-reranker-base", use_fp16: bool = True):
-        self.model_name = model_name
-        self.use_fp16 = use_fp16
-        self._reranker = None
-
-    def _lazy_init(self):
-        if self._reranker is not None:
-            return
-        try:
-            from FlagEmbedding import FlagReranker
-            self._reranker = FlagReranker(self.model_name, use_fp16=self.use_fp16)
-            logger.info(f"[Reranker] 模型已加载: {self.model_name}")
-        except ImportError:
-            logger.error("[Reranker] FlagEmbedding 未安装，请执行: pip install FlagEmbedding")
-            raise
-        except Exception as e:
-            logger.error(f"[Reranker] 模型加载失败: {e}")
-            raise
+    def __init__(self):
+        self.base_url = config.reranker.BASE_URL
+        self.api_key = config.reranker.API_KEY
+        self.model = config.reranker.MODEL
 
     def rerank(
         self,
@@ -156,26 +142,49 @@ class Reranker:
         candidates: List[Dict[str, Any]],
         top_k: int = 10,
     ) -> List[Dict[str, Any]]:
-        """对候选子块重排序，返回 top_k 条"""
+        """调用 Gitee AI reranker API 对候选子块重排序，返回 top_k 条"""
         if not candidates:
             return []
 
-        self._lazy_init()
+        import requests
 
-        pairs = [[query, doc.get("content", "")] for doc in candidates]
+        sentences = [doc.get("content", "")[:512] for doc in candidates]
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "X-Failover-Enabled": "true",
+        }
+        payload = {
+            "model": self.model,
+            "inputs": {
+                "source_sentence": query,
+                "sentences": sentences,
+            },
+        }
+
         try:
-            scores = self._reranker.compute_score(pairs, normalize=True)
-        except Exception:
-            scores = [self._reranker.compute_score([p], normalize=True)[0] for p in pairs]
+            resp = requests.post(self.base_url, headers=headers, json=payload, timeout=30)
+            resp.raise_for_status()
+            scores = resp.json()
 
-        if not isinstance(scores, list):
-            scores = [scores]
+            # Gitee AI 返回格式: [score1, score2, ...] 与 sentences 顺序对应
+            if isinstance(scores, list) and len(scores) == len(candidates):
+                for i, doc in enumerate(candidates):
+                    doc["rerank_score"] = float(scores[i])
+            else:
+                logger.warning(f"[Reranker] API 返回格式异常: {type(scores)}, 跳过重排")
+                return candidates[:top_k]
 
-        for i, doc in enumerate(candidates):
-            doc["rerank_score"] = float(scores[i]) if i < len(scores) else 0.0
+            candidates.sort(key=lambda x: x.get("rerank_score", 0), reverse=True)
+            logger.info(
+                f"[Reranker] 重排完成，top1 score={candidates[0].get('rerank_score', 0):.4f}"
+            )
+            return candidates[:top_k]
 
-        candidates.sort(key=lambda x: x.get("rerank_score", 0), reverse=True)
-        return candidates[:top_k]
+        except Exception as e:
+            logger.warning(f"[Reranker] API 调用失败，跳过重排: {e}")
+            return candidates[:top_k]
 
 
 # ============================================================================
@@ -221,10 +230,16 @@ class HybridRetriever:
             documents = results.get("documents", [])
             metadatas = results.get("metadatas", [])
 
+            # 排除父块类型（parent），其余所有类型都作为可检索块
+            # 兼容两种存储格式：
+            #   - 父子分块模式: chunk_type = "child" / "child_text" / "parent"
+            #   - 普通分块模式: chunk_type = "text" / "table" / "equation"
+            PARENT_TYPES = ("parent", "parent_text")
+
             for i in range(len(ids)):
                 meta = metadatas[i] if i < len(metadatas) else {}
                 chunk_type = meta.get("chunk_type", meta.get("type", "text"))
-                if chunk_type not in ("child", "child_text"):
+                if chunk_type in PARENT_TYPES:
                     continue
 
                 child_docs.append({
@@ -244,7 +259,8 @@ class HybridRetriever:
             self._bm25_map[knowledge_base_id] = bm25
             self._initialized_kbs.add(knowledge_base_id)
             logger.info(
-                f"[HybridRetriever] KB={knowledge_base_id} 初始化完成，子块数={len(child_docs)}"
+                f"[HybridRetriever] KB={knowledge_base_id} 初始化完成，"
+                f"可检索块数={len(child_docs)}，总块数={len(ids)}"
             )
         except Exception as e:
             logger.error(f"[HybridRetriever] 初始化失败 KB={knowledge_base_id}: {e}")
@@ -445,7 +461,12 @@ class ParentChildRetriever:
             if pid not in parent_ids_seen:
                 parent_ids_seen.add(pid)
                 ordered_parent_ids.append(pid)
-            score = child.get("rerank_score") or child.get("rrf_score") or child.get("similarity") or 0
+            # 使用显式 None 检查避免 0.0 被当作 falsy 跳过
+            score = child.get("rerank_score")
+            if score is None:
+                score = child.get("rrf_score")
+            if score is None:
+                score = child.get("similarity", 0)
             child_scores_by_parent[pid].append(score)
 
         ordered_parent_ids.sort(
@@ -592,9 +613,25 @@ class SearchService:
         )
 
         results = result["results"]
+        logger.info(
+            f"[SearchService] 检索完成: query='{query[:50]}', "
+            f"kb_id={knowledge_base_id}, 原始结果数={len(results)}, "
+            f"子块候选数={result.get('child_candidates', 0)}, "
+            f"模式={result.get('mode', 'unknown')}"
+        )
+        if results:
+            scores_info = [(r.get("score", 0), r.get("avg_score", 0)) for r in results[:5]]
+            logger.info(f"[SearchService] 前5条分数(score, avg_score): {scores_info}")
+
         if min_score > 0:
+            before_count = len(results)
             results = [r for r in results
                        if r.get("score", 0) >= min_score or r.get("avg_score", 0) >= min_score]
+            if before_count > 0 and len(results) == 0:
+                logger.warning(
+                    f"[SearchService] min_score={min_score} 过滤后结果为空！"
+                    f"原始 {before_count} 条全部被过滤。考虑降低 min_score 阈值。"
+                )
 
         # 知识图谱融合（可选）
         if use_kg:

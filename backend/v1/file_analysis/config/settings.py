@@ -20,8 +20,6 @@ class ParserConfig:
         '.png', '.jpg', '.jpeg', '.gif'
     ])
     MAX_FILE_SIZE: int = 50
-    CHUNK_SIZE: int = 1000
-    CHUNK_OVERLAP: int = 200
 
 
 # MinIO配置（暂时禁用，使用本地存储）
@@ -151,7 +149,6 @@ class Config:
         self.mysql.DATABASE = os.getenv('MYSQL_DATABASE', self.mysql.DATABASE)
         
         self.parser.MAX_FILE_SIZE = int(os.getenv('MAX_FILE_SIZE_MB', self.parser.MAX_FILE_SIZE))
-        self.parser.CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', self.parser.CHUNK_SIZE))
         
         # MinerU 解析引擎配置
         self.mineru.PARSE_ENGINE = os.getenv('MINERU_PARSE_ENGINE', self.mineru.PARSE_ENGINE)

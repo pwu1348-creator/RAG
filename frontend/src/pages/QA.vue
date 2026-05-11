@@ -115,16 +115,22 @@
                 <div v-if="msg.streaming && msg.content" class="typing-cursor"></div>
                 <!-- 错误 -->
                 <div v-if="msg.error" class="msg-error">{{ msg.error }}</div>
-                <!-- 引用来源 -->
+                <!-- 引用来源：hover 展示所有检索 chunks -->
                 <div v-if="msg.sources && msg.sources.length" class="msg-sources">
-                  <div class="sources-title">
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"/></svg>
-                    参考来源
-                  </div>
-                  <div class="sources-list">
-                    <div v-for="(src, si) in msg.sources" :key="si" class="source-chip">
-                      <span class="source-doc">{{ src.doc_id?.slice(-8) || '--' }}</span>
-                      <span v-if="src.score" class="source-score">{{ (src.score * 100).toFixed(0) }}%</span>
+                  <div class="sources-trigger">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/></svg>
+                    参考来源 ({{ msg.sources.length }})
+                    <!-- hover 弹窗 -->
+                    <div class="sources-popup">
+                      <div class="popup-title">检索到的相关段落</div>
+                      <div v-for="(src, si) in msg.sources" :key="si" class="popup-chunk">
+                        <div class="popup-chunk-header">
+                          <span class="popup-chunk-idx">段落 {{ si + 1 }}</span>
+                          <span v-if="src.score" class="popup-chunk-score">{{ (src.score * 100).toFixed(0) }}%</span>
+                          <span v-if="src.page_idx" class="popup-chunk-page">P{{ src.page_idx }}</span>
+                        </div>
+                        <div class="popup-chunk-text">{{ src.content_preview || '无内容' }}</div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -894,32 +900,88 @@ onUnmounted(() => {
   40% { transform: scale(1); opacity: 1; }
 }
 
-/* 来源引用 */
+/* 来源引用 - hover 弹窗 */
 .msg-sources {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid rgba(168,230,207,0.3);
 }
 
-.sources-title {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 12px; font-weight: 600;
-  color: var(--primary-dark);
-  margin-bottom: 8px;
+.sources-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(168,230,207,0.15);
+  border: 1px solid rgba(168,230,207,0.4);
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #2d6a4f;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.sources-trigger:hover {
+  background: rgba(168,230,207,0.3);
+  border-color: #52b788;
+}
+.sources-trigger svg { flex-shrink: 0; color: #52b788; }
+
+/* hover 弹窗 - 无间隙直接贴合触发按钮 */
+.sources-popup {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  width: 420px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid rgba(168,230,207,0.4);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.15), 0 4px 12px rgba(0,0,0,0.08);
+  padding: 16px;
+  z-index: 9999;
+  animation: popupIn 0.15s ease;
+}
+.sources-trigger:hover .sources-popup { display: block; }
+@keyframes popupIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.popup-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1b4332;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(168,230,207,0.3);
 }
 
-.sources-list { display: flex; flex-wrap: wrap; gap: 8px; }
-
-.source-chip {
-  display: flex; align-items: center; gap: 6px;
-  padding: 5px 10px;
-  background: rgba(168,230,207,0.18);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
+.popup-chunk {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: rgba(240,250,245,0.6);
+  border: 1px solid rgba(168,230,207,0.2);
+  border-radius: 8px;
 }
+.popup-chunk:last-child { margin-bottom: 0; }
 
-.source-doc { color: var(--gray-600); font-family: monospace; }
-.source-score { color: var(--primary-dark); font-weight: 600; }
+.popup-chunk-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.popup-chunk-idx { font-size: 11px; font-weight: 600; color: #2d6a4f; }
+.popup-chunk-score { font-size: 10px; color: #52b788; background: rgba(168,230,207,0.3); padding: 1px 6px; border-radius: 8px; }
+.popup-chunk-page { font-size: 10px; color: #74c69d; }
+
+.popup-chunk-text {
+  font-size: 12px;
+  color: #1b4332;
+  line-height: 1.6;
+  word-break: break-word;
+}
 
 /* --- 输入区 --- */
 .input-section {
