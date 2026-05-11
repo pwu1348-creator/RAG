@@ -6,6 +6,7 @@ import time
 import subprocess
 import tempfile
 import uuid
+from datetime import datetime, timezone
 from typing import Dict, Any, Callable, Optional, List
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -44,12 +45,10 @@ except ImportError as e:
 
 _tokenizer = RagTokenizer()
 
-# 本地文件存储路径配置（暂时替代MinIO）
 LOCAL_STORAGE_ROOT = r"D:\pengpengRAG\backend\v1\file_analysis\uploads"
 LOCAL_IMAGE_DIR = os.path.join(LOCAL_STORAGE_ROOT, "image-minIO")
 IMAGE_URL_PREFIX = "http://localhost:8000/uploads/image-minIO"
 
-# Office 类文件扩展名，需要先用 LibreOffice 转 PDF
 _OFFICE_EXTS = {".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".txt", ".md", ".html"}
 
 
@@ -98,7 +97,6 @@ def _content_list_to_chunks(
     content_list: List[Dict[str, Any]],
     doc_name: str = "",
 ) -> List[Dict[str, Any]]:
-    """将 MinerU content_list 转换为内部 chunk 格式"""
     title_tks = _tokenize(doc_name) if doc_name else ""
     chunks = []
 
@@ -124,7 +122,6 @@ def _content_list_to_chunks(
             raw_content = (caption_str + "\n" + table_body).strip() if caption_str else table_body
 
         else:
-            # image 等类型跳过，由上层单独处理
             continue
 
         content = _normalize_content(raw_content, chunk_type)
@@ -147,12 +144,8 @@ def _content_list_to_chunks(
     return chunks
 
 
-# ---------------------------------------------------------------------------
-# MinerU 底层引擎调用（对齐第二个文件的风格）
-# ---------------------------------------------------------------------------
 
 def _parse_by_pipeline(file_path: str, temp_image_dir: str) -> tuple:
-    """使用 pipeline 引擎解析 PDF"""
     logger.info("[Parser-INFO] 使用 pipeline 引擎")
     pdf_bytes = read_fn(file_path)
     pdf_bytes = [convert_pdf_bytes_to_bytes_by_pypdfium2(pdf_bytes)]
@@ -175,7 +168,6 @@ def _parse_by_pipeline(file_path: str, temp_image_dir: str) -> tuple:
 
 
 def _parse_by_vlm(file_path: str, temp_image_dir: str) -> tuple:
-    """使用 VLM 引擎解析 PDF"""
     logger.info("[Parser-INFO] 使用 vlm 引擎")
     predictor = get_vlm_engine(inference_engine="transformers", is_async=False)
     pdf_bytes = read_fn(file_path)
@@ -192,7 +184,6 @@ def _parse_by_vlm(file_path: str, temp_image_dir: str) -> tuple:
 
 
 def _parse_by_hybrid(file_path: str, temp_image_dir: str) -> tuple:
-    """使用 hybrid 引擎解析 PDF"""
     logger.info("[Parser-INFO] 使用 hybrid 引擎")
     predictor = get_vlm_engine(inference_engine="transformers", is_async=False)
     pdf_bytes = read_fn(file_path)
@@ -214,12 +205,10 @@ def _parse_by_hybrid(file_path: str, temp_image_dir: str) -> tuple:
     return middle_json, content_list
 
 
-# 支持的解析引擎列表
 SUPPORTED_ENGINES = ("pipeline", "vlm", "hybrid")
 
 
 def _parse_pdf(file_path: str, temp_image_dir: str) -> tuple:
-    """根据配置选择引擎，统一入口。优先级：config > 环境变量 > 默认 pipeline"""
     engine = config.mineru.PARSE_ENGINE or os.getenv("MINERU_PARSE_ENGINE", "pipeline")
     engine = engine.lower().strip()
     logger.info(f"[Parser-INFO] 当前解析引擎: {engine}")
@@ -233,7 +222,6 @@ def _parse_pdf(file_path: str, temp_image_dir: str) -> tuple:
 
 
 def _convert_to_pdf_with_libreoffice(file_path: str, out_dir: str) -> str:
-    """使用 LibreOffice 将 Office/文本文件转换为 PDF，返回 PDF 路径"""
     cmd = [
         "soffice", "--headless", "--norestore", "--invisible",
         "--convert-to", "pdf",
@@ -251,9 +239,6 @@ def _convert_to_pdf_with_libreoffice(file_path: str, out_dir: str) -> str:
     return pdf_path
 
 
-# ---------------------------------------------------------------------------
-# 解析器主类
-# ---------------------------------------------------------------------------
 
 class BaseParser(ABC):
     @abstractmethod
@@ -267,11 +252,6 @@ class BaseParser(ABC):
 
 
 class MinerUParser(BaseParser):
-    """
-    统一走 MinerU 底层引擎解析。
-    - PDF  → 直接调用底层引擎
-    - 其余 → LibreOffice 转 PDF → 再调用底层引擎
-    """
 
     def parse(
         self,
@@ -333,10 +313,6 @@ class MinerUParser(BaseParser):
             },
         )
 
-    # ------------------------------------------------------------------
-    # 内部辅助
-    # ------------------------------------------------------------------
-
     def _extract_metadata(
         self,
         file_path: str,
@@ -347,7 +323,6 @@ class MinerUParser(BaseParser):
         pages  = {item["page_idx"] for item in content_list if "page_idx" in item}
         images = {item.get("img_path") for item in content_list if item.get("type") == "image" and item.get("img_path")}
 
-        # 尝试从 content_list 的第一个文本块提取标题
         title = os.path.splitext(os.path.basename(file_path))[0]
         for item in content_list:
             if item.get("type") == "text" and item.get("text", "").strip():
@@ -374,7 +349,6 @@ class MinerUParser(BaseParser):
         )
 
     def _to_plain_text(self, middle_json: dict) -> str:
-        """从 middle_json 拼出纯文本，供上层使用"""
         lines = []
         for page in middle_json.get("pdf_info", []):
             for block in page.get("preproc_blocks", []):
@@ -386,9 +360,6 @@ class MinerUParser(BaseParser):
         return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# DocumentParser：组合 MinerUParser + 图片本地存储
-# ---------------------------------------------------------------------------
 
 class DocumentParser:
     def __init__(self):
@@ -403,7 +374,6 @@ class DocumentParser:
             logger.error(f"[Parser-ERROR] 创建图片目录失败: {e}")
 
     def _upload_image_local(self, img_path_src: str) -> Optional[Dict[str, str]]:
-        """将图片复制到本地存储目录，返回 img_id / img_url"""
         if not os.path.exists(img_path_src):
             logger.warning(f"[Parser-WARNING] 图片文件不存在: {img_path_src}")
             return None
@@ -426,11 +396,6 @@ class DocumentParser:
         temp_image_dir: str,
         chunks: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
-        """
-        遍历 content_list 中的 image 条目，上传到本地，
-        然后按位置关联到最近的文本块（distance < 5）。
-        返回 image_info_list。
-        """
         image_info_list = []
 
         for idx, item in enumerate(content_list):
@@ -445,7 +410,6 @@ class DocumentParser:
                 info["position"] = idx
                 image_info_list.append(info)
 
-        # 关联到最近的文本/表格块
         if image_info_list:
             for chunk_idx, chunk in enumerate(chunks):
                 if chunk["type"] not in ("text", "table"):
@@ -472,7 +436,6 @@ class DocumentParser:
     ) -> Dict[str, Any]:
         result = self.mineru_parser.parse(file_path, options, progress_callback)
 
-        # 取出解析时产生的临时图片目录（存在 raw_output 里）
         temp_image_dir = options.get("temp_image_dir", "") if options else ""
         image_info_list = []
         if temp_image_dir and os.path.isdir(temp_image_dir):
@@ -503,9 +466,6 @@ class DocumentParser:
         }
 
 
-# ---------------------------------------------------------------------------
-# DocumentProcessor：解析 + 向量化 + 存储
-# ---------------------------------------------------------------------------
 
 class DocumentProcessor:
     def __init__(self):
@@ -514,11 +474,60 @@ class DocumentProcessor:
         self.embedding = EmbeddingService() if SERVICES_AVAILABLE else None
         self.mysql     = MySQLService()     if SERVICES_AVAILABLE else None
 
+    def perform_parse(
+        self,
+        raw_chunks: List[Dict[str, Any]],
+        doc_id: str,
+        kb_id: str,
+        doc_name: str,
+    ) -> List[Dict[str, Any]]:
+        now = datetime.now(timezone.utc)
+        current_time = now.strftime("%Y-%m-%d %H:%M:%S")
+        current_timestamp = now.timestamp()
+
+        title_tks = _tokenize(doc_name) if doc_name else ""
+
+        enriched_chunks = []
+        for chunk in raw_chunks:
+            content = chunk.get("content", "")
+            page_idx = chunk.get("page_idx", 0)
+            bbox = chunk.get("bbox", [0, 0, 0, 0])
+
+            content_ltks = chunk.get("content_ltks", "") or _tokenize(content)
+            content_sm_ltks = chunk.get("content_sm_ltks", "") or _tokenize(content)
+
+            position_int = [[page_idx + 1] + list(bbox)] if bbox else [[page_idx + 1, 0, 0, 0, 0]]
+
+            enriched_chunk = {
+                "doc_id":              doc_id,
+                "kb_id":               kb_id,
+                "docnm_kwd":           doc_name,
+                "title_tks":           title_tks,
+                "title_sm_tks":        title_tks,
+                "content_with_weight": content,
+                "content_ltks":        content_ltks,
+                "content_sm_ltks":     content_sm_ltks,
+                "page_num_int":        [page_idx + 1],
+                "position_int":        position_int,
+                "top_int":             [1],
+                "create_time":         current_time,
+                "create_timestamp_flt": current_timestamp,
+                "img_id":              chunk.get("img_id", ""),
+            }
+            enriched_chunks.append(enriched_chunk)
+
+        logger.info(
+            f"[Parser-INFO] perform_parse 完成: {len(enriched_chunks)} 个 chunks | "
+            f"doc_id={doc_id} | doc_name={doc_name}"
+        )
+        return enriched_chunks
+
     def process_document(
         self,
         file_path: str,
         file_id: str,
         kb_id: str,
+        tenant_id: str = "",
         options: Dict[str, Any] = None,
         progress_callback: Callable[[int], None] = None,
     ) -> Dict[str, Any]:
@@ -527,19 +536,32 @@ class DocumentProcessor:
 
         parse_result = self.parser.parse(file_path, options, progress_callback)
 
-        chunks     = parse_result.get("chunks", [])
+        raw_chunks = parse_result.get("chunks", [])
+        doc_name = os.path.splitext(os.path.basename(file_path))[0]
+
+        chunks = self.perform_parse(raw_chunks, file_id, kb_id, doc_name)
+
         embeddings = None
+        vector_dim = config.embedding.DIMENSIONS
 
         if chunks and self.embedding:
-            texts      = [c.get("content", c.get("text", "")) for c in chunks]
+            texts = [c.get("content_with_weight", "") for c in chunks]
             embeddings = self.embedding.encode(texts)
+            if embeddings and embeddings[0]:
+                vector_dim = len(embeddings[0])
 
-        if chunks and self.chromadb and file_id and kb_id:
-            self.chromadb.add_chunks(file_id, kb_id, chunks, embeddings)
+        if chunks and self.chromadb and file_id and kb_id and tenant_id:
+            self.chromadb.add_chunks(
+                tenant_id=tenant_id,
+                doc_id=file_id,
+                kb_id=kb_id,
+                chunks=chunks,
+                embeddings=embeddings,
+                vector_dim=vector_dim,
+            )
 
         if chunks and self.mysql and file_id and kb_id:
             self.mysql.save_chunks(file_id, kb_id, chunks)
-            # 保存图片元数据
             image_info_list = parse_result.get("images", [])
             if image_info_list:
                 self.mysql.save_images(file_id, kb_id, image_info_list)
@@ -559,7 +581,6 @@ class DocumentProcessor:
         if self.mysql and kb_id and file_id:
             self.mysql.update_kb_document_status(kb_id, file_id, "completed", 100)
 
-        # 刷新知识库的 doc_count 和 total_chunks 统计
         if self.mysql and kb_id:
             self.mysql.refresh_kb_statistics(kb_id)
 

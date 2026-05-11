@@ -90,8 +90,12 @@ async def update_knowledge_base(kb_id: str, request: UpdateKBRequest):
 
 @router.delete("/{kb_id}")
 async def delete_knowledge_base(kb_id: str):
+    kb = admin_service.get_knowledge_base_detail(kb_id)
+    tenant_id = kb.get("owner_id", "") if kb else ""
+    
     try:
-        chromadb_service.delete_collection(kb_id)
+        if tenant_id:
+            chromadb_service.delete_collection(tenant_id)
     except Exception as e:
         logger.warning(f"Failed to delete collection: {e}")
     
@@ -174,7 +178,10 @@ async def get_kb_document(kb_id: str, doc_id: str):
 @router.delete("/{kb_id}/collection")
 async def delete_kb_collection(kb_id: str):
     try:
-        chromadb_service.delete_collection(kb_id)
+        kb = admin_service.get_knowledge_base_detail(kb_id)
+        tenant_id = kb.get("owner_id", "") if kb else ""
+        if tenant_id:
+            chromadb_service.delete_collection(tenant_id)
         return success_response(message="Collection deleted")
     except Exception as e:
         return error_response(str(e), 400)
@@ -208,8 +215,12 @@ async def remove_file_from_kb(kb_id: str, doc_id: str):
     if not doc:
         return error_response("Document not found", 404)
     
+    kb = admin_service.get_knowledge_base_detail(kb_id)
+    tenant_id = kb.get("owner_id", "") if kb else ""
+    
     try:
-        chromadb_service.delete_document_chunks(kb_id, doc_id)
+        if tenant_id:
+            chromadb_service.delete_document_chunks(tenant_id, kb_id, doc_id)
     except Exception as e:
         logger.warning(f"Failed to delete vectors: {e}")
     
@@ -233,6 +244,9 @@ async def parse_kb_document(kb_id: str, doc_id: str):
         
         mysql_service.update_kb_document_status(kb_id, doc_id, 'processing')
         
+        kb = admin_service.get_knowledge_base_detail(kb_id)
+        tenant_id = kb.get("owner_id", "") if kb else ""
+        
         minio_object = doc.get('minio_object')
         if not minio_object:
             return error_response("File path not found", 400)
@@ -250,7 +264,8 @@ async def parse_kb_document(kb_id: str, doc_id: str):
             filename=doc.get('filename', 'unknown'),
             file_path=file_path,
             kb_id=kb_id,
-            doc_id=doc_id
+            doc_id=doc_id,
+            tenant_id=tenant_id,
         )
         
         return success_response(message="Document parsing started")

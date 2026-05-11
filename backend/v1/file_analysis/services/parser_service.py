@@ -50,7 +50,8 @@ class ParserService:
         file_path: str,
         options: str = '{}',
         kb_id: Optional[str] = None,
-        doc_id: Optional[str] = None
+        doc_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> ParseTask:
         try:
             parse_options = json.loads(options) if isinstance(options, str) else options
@@ -76,7 +77,8 @@ class ParserService:
             self._process_task,
             task,
             kb_id,
-            doc_id
+            doc_id,
+            tenant_id,
         )
         
         return task
@@ -85,7 +87,8 @@ class ParserService:
         self,
         task: ParseTask,
         kb_id: Optional[str] = None,
-        doc_id: Optional[str] = None
+        doc_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ):
         file_id = doc_id or task.doc_id
         
@@ -108,6 +111,7 @@ class ParserService:
                 file_path=task.file_path,
                 file_id=file_id,
                 kb_id=kb_id,
+                tenant_id=tenant_id or "",
                 options=task.options,
                 progress_callback=lambda p: self._update_progress(task, p)
             )
@@ -152,10 +156,12 @@ class ParserService:
                 return False
             
             if task.doc_id:
-                # Delete from MySQL
                 self.mysql.delete_document(task.doc_id)
-                # Delete from ChromaDB (doc_id first, then kb_id)
-                self.chromadb.delete_document_chunks(task.doc_id, task.knowledge_base_id)
+                if task.knowledge_base_id:
+                    kb = self.mysql.get_knowledge_base(task.knowledge_base_id)
+                    tenant_id = kb.get("owner_id", "") if kb else ""
+                    if tenant_id:
+                        self.chromadb.delete_document_chunks(tenant_id, task.knowledge_base_id, task.doc_id)
             
             # Delete from local storage
             if task.minio_url:
