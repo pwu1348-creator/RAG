@@ -513,6 +513,13 @@ class DocumentParser:
 
         image_count = len(image_info_list)
 
+        # 清理临时目录
+        _raw_temp_image_dir = result.raw_output.get('temp_image_dir', '')
+        if _raw_temp_image_dir:
+            _temp_dir = os.path.dirname(_raw_temp_image_dir)
+            if os.path.isdir(_temp_dir):
+                shutil.rmtree(_temp_dir, ignore_errors=True)
+
         return {
             "text":           result.text,
             "markdown":       result.markdown,
