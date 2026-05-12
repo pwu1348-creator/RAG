@@ -32,7 +32,7 @@
 
 ### 知识管理
 - **自动实体关系抽取**：使用 LLM 智能识别
-- **知识图谱存储**：Neo4j（生产级）/ NetworkX（轻量级）
+- **知识图谱存储**：NetworkX（轻量级本地图存储）
 - **多跳推理**：支持 2-3 跳关联查询
 - **图检索融合**：与向量检索自动融合
 
@@ -48,7 +48,8 @@
 - **向量数据库**：ChromaDB（本地持久化）
 - **关系数据库**：MySQL
 - **文件存储**：MinIO
-- **知识图谱**：Neo4j / NetworkX
+- **文档解析**：MinerU（纯 CPU 模式，云服务器暂无 GPU，无加速）
+- **知识图谱**：NetworkX
 
 ### 前端
 - **框架**：Vue 3 + Vite
@@ -59,13 +60,77 @@
 
 ---
 
-## 启动方式
+## 云服务器部署流程
 
 ### 前置条件
 
+- Linux 服务器（推荐 Ubuntu 22.04+）
+- Python 3.10+
+- Node.js 18+
 - MySQL 已启动，数据库 `rag_system` 已创建
-- Python 虚拟环境已安装依赖
-- [可选] Neo4j 部署（用于生产级知识图谱）
+- PM2 全局安装：`npm install -g pm2`
+
+### 1. 克隆项目
+
+```bash
+git clone https://github.com/pwu1348-creator/RAG.git
+cd RAG
+```
+
+### 2. 安装 Parser Service 依赖（端口 8001）
+
+```bash
+cd backend/v1/file_analysis
+python -m venv venv_RAG
+source venv_RAG/bin/activate
+
+# 先安装 MinerU（必须通过 uv 安装，不能直接 pip install）
+pip install --upgrade pip
+pip install uv
+uv pip install -U "mineru[all]"
+
+# 再安装其余依赖
+pip install -r requirements.txt
+
+deactivate
+```
+
+> 注意：MinerU 安装包较大，需要下载模型文件。云服务器暂无 GPU，MinerU 以纯 CPU 模式运行，无加速。
+
+### 3. 安装 QA Service 依赖（端口 8002）
+
+```bash
+cd backend/v1/search_and_ask
+python -m venv venv_RAG2
+source venv_RAG2/bin/activate
+
+pip install --upgrade pip
+pip install -r requirements.txt
+
+deactivate
+```
+
+### 4. 安装前端依赖（端口 3000）
+
+```bash
+cd frontend
+npm install
+```
+
+### 5. 配置环境变量
+
+编辑 `backend/v1/.env`，根据实际情况修改 MySQL 连接、API Key 等配置。
+
+### 6. 启动服务
+
+```bash
+# 使用 PM2 一键启动所有服务
+pm2 start ecosystem.config.js
+```
+
+---
+
+## 本地开发启动
 
 ### 1. 启动 Parser Service（端口 8001）
 
@@ -108,30 +173,6 @@ npm run dev
 # 启动后自动生成知识图谱数据：./kg_data/graph.json
 ```
 
-### 生产环境（Neo4j）
-
-使用 Docker 部署 Neo4j：
-
-```bash
-# Windows PowerShell
-docker run -d `
-  --name neo4j `
-  -p 7687:7687 `
-  -p 7474:7474 `
-  -e NEO4J_AUTH=neo4j/pengpeng123 `
-  neo4j:latest
-```
-
-配置环境变量：
-
-```bash
-set KG_BACKEND=neo4j
-set NEO4J_URI=bolt://localhost:7687
-set NEO4J_USER=neo4j
-set NEO4J_PASSWORD=pengpeng123
-```
-
-详见 → [知识图谱完整指南](./backend/v1/search_and_ask/KG_GUIDE.md)
 
 ---
 
