@@ -22,17 +22,21 @@ from config import config
 from utils.logger import logger
 from utils.rag_tokenizer import RagTokenizer
 
-from mineru.cli.common import read_fn, convert_pdf_bytes_to_bytes_by_pypdfium2
-from mineru.utils.engine_utils import get_vlm_engine
+from mineru.cli.common import read_fn, convert_pdf_bytes_to_bytes
 from mineru.utils.enum_class import MakeMode
 from mineru.utils.model_utils import clean_memory
 from mineru.data.data_reader_writer import FileBasedDataWriter
-from mineru.backend.pipeline.pipeline_analyze import doc_analyze as pipeline_doc_analyze
-from mineru.backend.pipeline.model_json_to_middle_json import result_to_middle_json as pipeline_result_to_middle_json
+from mineru.backend.pipeline.pipeline_analyze import doc_analyze_streaming as pipeline_doc_analyze_streaming
 from mineru.backend.pipeline.pipeline_middle_json_mkcontent import union_make as pipeline_union_make
 from mineru.backend.vlm.vlm_analyze import doc_analyze as vlm_doc_analyze
 from mineru.backend.vlm.vlm_middle_json_mkcontent import union_make as vlm_union_make
 from mineru.backend.hybrid.hybrid_analyze import doc_analyze as hybrid_doc_analyze
+
+# MinerU 原生 Office 解析（DOCX / PPTX / XLSX）
+from mineru.backend.office.docx_analyze import office_docx_analyze
+from mineru.backend.office.pptx_analyze import office_pptx_analyze
+from mineru.backend.office.xlsx_analyze import office_xlsx_analyze
+from mineru.backend.office.office_middle_json_mkcontent import union_make as office_union_make
 
 try:
     from services.chromadb_service import ChromaDBService
@@ -49,7 +53,10 @@ LOCAL_STORAGE_ROOT = r"D:\pengpengRAG\backend\v1\file_analysis\uploads"
 LOCAL_IMAGE_DIR = os.path.join(LOCAL_STORAGE_ROOT, "image-minIO")
 IMAGE_URL_PREFIX = "http://localhost:8000/uploads/image-minIO"
 
-_OFFICE_EXTS = {".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".txt", ".md", ".html"}
+# 原生支持的 Office 格式（MinerU 3.1+ 直接解析，无需 LibreOffice）
+_NATIVE_OFFICE_EXTS = {".docx", ".pptx", ".xlsx"}
+# 仍需 LibreOffice 转 PDF 的格式（旧格式 .doc/.ppt/.xls 及纯文本）
+_LEGACY_OFFICE_EXTS = {".doc", ".ppt", ".xls", ".txt", ".md", ".html"}
 
 
 @dataclass
@@ -148,20 +155,29 @@ def _content_list_to_chunks(
 def _parse_by_pipeline(file_path: str, temp_image_dir: str) -> tuple:
     logger.info("[Parser-INFO] 使用 pipeline 引擎")
     pdf_bytes = read_fn(file_path)
-    pdf_bytes = [convert_pdf_bytes_to_bytes_by_pypdfium2(pdf_bytes)]
-
-    infer_results, all_image_lists, all_pdf_docs, lang_list, ocr_enabled_list = pipeline_doc_analyze(
-        pdf_bytes, ["ch"]
-    )
-    if not infer_results:
-        return {}, []
+    pdf_bytes_pages = convert_pdf_bytes_to_bytes(pdf_bytes)
 
     image_writer = FileBasedDataWriter(temp_image_dir)
-    middle_json = pipeline_result_to_middle_json(
-        infer_results[0], all_image_lists[0], all_pdf_docs[0],
-        image_writer, lang_list[0], ocr_enabled_list[0],
-        formula_enabled=True,
+
+    # 使用 streaming API，通过回调获取 middle_json
+    result_holder = {}
+
+    def on_doc_ready(doc_index, model_list, middle_json, ocr_enable):
+        result_holder['middle_json'] = middle_json
+
+    pipeline_doc_analyze_streaming(
+        [pdf_bytes_pages],
+        [image_writer],
+        ["ch"],
+        on_doc_ready,
+        formula_enable=True,
+        table_enable=True,
     )
+
+    middle_json = result_holder.get('middle_json', {})
+    if not middle_json:
+        return {}, []
+
     image_dir    = os.path.basename(temp_image_dir)
     content_list = pipeline_union_make(middle_json["pdf_info"], MakeMode.CONTENT_LIST, image_dir)
     return middle_json, content_list
@@ -169,14 +185,14 @@ def _parse_by_pipeline(file_path: str, temp_image_dir: str) -> tuple:
 
 def _parse_by_vlm(file_path: str, temp_image_dir: str) -> tuple:
     logger.info("[Parser-INFO] 使用 vlm 引擎")
-    predictor = get_vlm_engine(inference_engine="transformers", is_async=False)
     pdf_bytes = read_fn(file_path)
-    pdf_bytes = convert_pdf_bytes_to_bytes_by_pypdfium2(pdf_bytes, 0, None)
+    pdf_bytes_pages = convert_pdf_bytes_to_bytes(pdf_bytes)
 
     image_writer = FileBasedDataWriter(temp_image_dir)
     middle_json, _ = vlm_doc_analyze(
-        pdf_bytes, image_writer=image_writer, predictor=predictor,
-        server_url=None, gpu_memory_utilization=0.4,
+        pdf_bytes_pages,
+        image_writer=image_writer,
+        backend="transformers",
     )
     image_dir    = os.path.basename(temp_image_dir)
     content_list = vlm_union_make(middle_json["pdf_info"], MakeMode.CONTENT_LIST, image_dir)
@@ -185,23 +201,44 @@ def _parse_by_vlm(file_path: str, temp_image_dir: str) -> tuple:
 
 def _parse_by_hybrid(file_path: str, temp_image_dir: str) -> tuple:
     logger.info("[Parser-INFO] 使用 hybrid 引擎")
-    predictor = get_vlm_engine(inference_engine="transformers", is_async=False)
     pdf_bytes = read_fn(file_path)
-    pdf_bytes = convert_pdf_bytes_to_bytes_by_pypdfium2(pdf_bytes, 0, None)
+    pdf_bytes_pages = convert_pdf_bytes_to_bytes(pdf_bytes)
 
     image_writer = FileBasedDataWriter(temp_image_dir)
     middle_json, _, _ = hybrid_doc_analyze(
-        pdf_bytes,
+        pdf_bytes_pages,
         image_writer=image_writer,
-        predictor=predictor,
+        backend="transformers",
         parse_method="auto",
         language="ch",
         inline_formula_enable=True,
-        server_url=None,
-        gpu_memory_utilization=0.4,
     )
     image_dir    = os.path.basename(temp_image_dir)
     content_list = vlm_union_make(middle_json["pdf_info"], MakeMode.CONTENT_LIST, image_dir)
+    return middle_json, content_list
+
+
+def _parse_office_native(file_path: str, temp_image_dir: str) -> tuple:
+    """使用 MinerU 3.1+ 原生 Office 解析（DOCX / PPTX / XLSX），无需 LibreOffice 转换。"""
+    ext = os.path.splitext(file_path)[1].lower()
+    logger.info(f"[Parser-INFO] 使用 MinerU 原生 Office 解析引擎: {ext}")
+
+    with open(file_path, "rb") as f:
+        file_bytes = f.read()
+
+    image_writer = FileBasedDataWriter(temp_image_dir)
+
+    if ext == ".docx":
+        middle_json, _ = office_docx_analyze(file_bytes, image_writer=image_writer)
+    elif ext == ".pptx":
+        middle_json, _ = office_pptx_analyze(file_bytes, image_writer=image_writer)
+    elif ext == ".xlsx":
+        middle_json, _ = office_xlsx_analyze(file_bytes, image_writer=image_writer)
+    else:
+        raise ValueError(f"不支持的原生 Office 格式: {ext}")
+
+    image_dir = os.path.basename(temp_image_dir)
+    content_list = office_union_make(middle_json["pdf_info"], MakeMode.CONTENT_LIST, image_dir)
     return middle_json, content_list
 
 
@@ -273,17 +310,23 @@ class MinerUParser(BaseParser):
         os.makedirs(temp_image_dir, exist_ok=True)
 
         try:
-            # Office / 文本类先转 PDF
-            if ext in _OFFICE_EXTS:
+            if ext in _NATIVE_OFFICE_EXTS:
+                # MinerU 3.1+ 原生解析 DOCX/PPTX/XLSX，无需 LibreOffice
+                if progress_callback:
+                    progress_callback(30)
+                middle_json, content_list = _parse_office_native(file_path, temp_image_dir)
+            elif ext in _LEGACY_OFFICE_EXTS:
+                # 旧格式 .doc/.ppt/.xls 及纯文本仍需 LibreOffice 转 PDF
                 logger.info(f"[Parser-INFO] {ext} 文件先用 LibreOffice 转为 PDF")
                 pdf_path = _convert_to_pdf_with_libreoffice(file_path, temp_dir)
+                if progress_callback:
+                    progress_callback(30)
+                middle_json, content_list = _parse_pdf(pdf_path, temp_image_dir)
             else:
-                pdf_path = file_path
-
-            if progress_callback:
-                progress_callback(30)
-
-            middle_json, content_list = _parse_pdf(pdf_path, temp_image_dir)
+                # PDF 直接解析
+                if progress_callback:
+                    progress_callback(30)
+                middle_json, content_list = _parse_pdf(file_path, temp_image_dir)
 
             if progress_callback:
                 progress_callback(70)
@@ -349,9 +392,18 @@ class MinerUParser(BaseParser):
         )
 
     def _to_plain_text(self, middle_json: dict) -> str:
+        """从 middle_json 提取纯文本，兼容 PDF pipeline 和 Office 原生解析两种结构。"""
         lines = []
         for page in middle_json.get("pdf_info", []):
+            # PDF pipeline 结构: preproc_blocks -> lines -> spans
             for block in page.get("preproc_blocks", []):
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        text = span.get("content", "").strip()
+                        if text:
+                            lines.append(text)
+            # Office 原生解析结构: para_blocks -> lines -> spans
+            for block in page.get("para_blocks", []):
                 for line in block.get("lines", []):
                     for span in line.get("spans", []):
                         text = span.get("content", "").strip()
