@@ -14,7 +14,6 @@ from .core import (
     HybridRetriever,
     BM25Retriever,
     Reranker,
-    ParentChildRetriever,
     ParentChildChunker,
     QuestionAnswering,
 )
@@ -27,7 +26,6 @@ __all__ = [
     "HybridRetriever",
     "BM25Retriever",
     "Reranker",
-    "ParentChildRetriever",
     "ParentChildChunker",
     "QuestionAnswering",
     # 服务

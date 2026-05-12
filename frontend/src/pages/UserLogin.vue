@@ -3,9 +3,10 @@
     <FallingLeaves :count="20" :interval="900" />
     <div class="watermark">@ 吴世鹏</div>
 
-    <div class="login-card">
+    <div class="login-split">
       <!-- 左侧：角色区域 -->
       <div class="mud-side" @mousemove="onMouseMove">
+        <div class="side-transition"></div>
         <div class="mud-men-wrap">
           <MudMan
             :isTypingUsername="isTypingUsername"
@@ -133,7 +134,7 @@ const mouseY = ref(0)
 const isTypingUsername = ref(false)
 const isTypingPassword = ref(false)
 
-// 全局鼠标监听，确保鼠标在表单区域时角色也能跟踪
+// 全局鼠标监听
 function onMouseMove(e) {
   mouseX.value = e.clientX
   mouseY.value = e.clientY
@@ -175,7 +176,6 @@ async function handleLogin() {
 
   try {
     const { default: axios } = await import('axios')
-    // 用户登录走 QA Service (8002)，QA Service 未启动则无法登录
     const res = await axios.post('/api/qa/auth/user/login', {
       username: username.value,
       password: password.value,
@@ -204,7 +204,6 @@ onMounted(() => {
     username.value = remembered
     rememberMe.value = true
   }
-  // 注册全局鼠标监听
   window.addEventListener('mousemove', onMouseMove)
 })
 
@@ -215,94 +214,75 @@ onUnmounted(() => {
 
 <style scoped>
 .user-login-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #e8f8f0 0%, #f0faf5 40%, #e0f4ec 100%);
-  padding: 20px;
-  position: relative;
+  width: 100vw;
+  height: 100vh;
   overflow: hidden;
-}
-
-/* 背景装饰圆 */
-.user-login-page::before {
-  content: '';
-  position: fixed;
-  width: 600px; height: 600px;
-  background: radial-gradient(circle, rgba(168,230,207,0.25) 0%, transparent 70%);
-  top: -200px; right: -200px;
-  pointer-events: none;
-}
-.user-login-page::after {
-  content: '';
-  position: fixed;
-  width: 400px; height: 400px;
-  background: radial-gradient(circle, rgba(136,216,176,0.2) 0%, transparent 70%);
-  bottom: -100px; left: -100px;
-  pointer-events: none;
+  position: relative;
 }
 
 .watermark {
   position: fixed;
   bottom: 16px; right: 24px;
   font-size: 13px;
-  color: rgba(127,205,205,0.45);
+  color: rgba(80, 140, 180, 0.4);
   pointer-events: none;
   z-index: 100;
   user-select: none;
 }
 
-/* 卡片 */
-.login-card {
+/* 全屏左右分割 */
+.login-split {
   display: flex;
   width: 100%;
-  max-width: 1020px;
-  min-height: 520px;
-  background: rgba(255,255,255,0.92);
-  backdrop-filter: blur(20px);
-  border-radius: 24px;
-  box-shadow: 0 20px 60px rgba(100,180,140,0.18), 0 4px 20px rgba(0,0,0,0.06);
-  overflow: hidden;
+  height: 100%;
   position: relative;
-  z-index: 10;
+  z-index: 1;
 }
 
-/* 左侧泥巴人区域 */
+/* 左侧泥巴人区域 - 占 57%，亮绿色 */
 .mud-side {
-  width: 460px;
-  flex-shrink: 0;
-  background: linear-gradient(160deg, #c8f0dc 0%, #a8e6cf 40%, #88d8b0 100%);
+  width: 57%;
+  height: 100%;
+  background: linear-gradient(160deg, #d4f5e0 0%, #b8ecd0 30%, #a0e8c0 60%, #c5f2d8 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
-  padding: 32px 24px 36px;
+  justify-content: center;
   position: relative;
   overflow: hidden;
+}
+
+/* 左右过渡渐变 - 白色过渡到深绿 */
+.side-transition {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 100px;
+  height: 100%;
+  background: linear-gradient(to right, transparent 0%, rgba(255, 255, 255, 0.4) 35%, rgba(240, 255, 245, 0.6) 55%, rgba(18, 46, 37, 0.8) 85%, #122e25 100%);
+  z-index: 3;
+  pointer-events: none;
 }
 
 .mud-side::before {
   content: '';
   position: absolute;
-  top: -60px; left: -60px;
-  width: 200px; height: 200px;
-  background: rgba(255,255,255,0.15);
+  top: -120px; left: -120px;
+  width: 350px; height: 350px;
+  background: rgba(255,255,255,0.2);
   border-radius: 50%;
 }
 .mud-side::after {
   content: '';
   position: absolute;
-  bottom: 80px; right: -40px;
-  width: 150px; height: 150px;
-  background: rgba(255,255,255,0.1);
+  bottom: 80px; right: -80px;
+  width: 250px; height: 250px;
+  background: rgba(255,255,255,0.12);
   border-radius: 50%;
 }
 
-/* 用 scale 把 550×400 的角色缩放到左侧面板宽度内 */
 .mud-men-wrap {
   position: relative;
-  /* 缩放后的实际占位尺寸：550 * 0.76 ≈ 418, 400 * 0.76 ≈ 304 */
   width: 418px;
   height: 304px;
   flex-shrink: 0;
@@ -321,55 +301,91 @@ onUnmounted(() => {
 .mud-title {
   text-align: center;
   z-index: 2;
-  margin-top: 16px;
+  margin-top: 24px;
 }
 
 .mud-title-text {
   display: block;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
   color: #2d6a4f;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .mud-title-sub {
   display: block;
-  font-size: 13px;
-  color: #52b788;
+  font-size: 14px;
+  color: #40a070;
   line-height: 1.5;
 }
 
-/* 右侧表单 */
+/* 右侧表单 - 占 43%，深绿色高级渐变 */
 .form-side {
-  flex: 1;
+  width: 43%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 48px 56px;
+  background: linear-gradient(160deg, #122e25 0%, #1a3d32 25%, #0f2b22 50%, #1c4438 75%, #122e25 100%);
+  padding: 48px 44px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 装饰光晕 - 绿色金色柔光 */
+.form-side::before {
+  content: '';
+  position: absolute;
+  top: -150px; right: -150px;
+  width: 400px; height: 400px;
+  background: radial-gradient(circle, rgba(80, 200, 140, 0.12) 0%, transparent 60%);
+  pointer-events: none;
+  animation: greenGlow 7s ease-in-out infinite alternate;
+}
+.form-side::after {
+  content: '';
+  position: absolute;
+  bottom: -100px; left: -100px;
+  width: 350px; height: 350px;
+  background: radial-gradient(circle, rgba(200, 170, 60, 0.08) 0%, transparent 60%);
+  pointer-events: none;
+  animation: greenGlow2 5s ease-in-out infinite alternate;
+}
+
+@keyframes greenGlow {
+  0% { opacity: 0.5; transform: scale(1); }
+  100% { opacity: 1; transform: scale(1.08); }
+}
+
+@keyframes greenGlow2 {
+  0% { opacity: 0.4; }
+  100% { opacity: 0.9; }
 }
 
 .form-inner {
   width: 100%;
   max-width: 320px;
+  position: relative;
+  z-index: 2;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 28px;
+  margin-bottom: 32px;
 }
 
 .brand-icon {
-  width: 36px; height: 36px;
+  width: 40px; height: 40px;
   border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
 }
 
 .brand-logo-img {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   object-fit: contain;
   border-radius: 10px;
   pointer-events: none;
@@ -377,65 +393,67 @@ onUnmounted(() => {
 }
 
 .brand-name {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
-  color: #2d6a4f;
+  color: rgba(200, 240, 220, 0.9);
 }
 
 .form-title {
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 700;
-  color: #1b4332;
-  margin-bottom: 6px;
+  color: rgba(220, 250, 235, 0.95);
+  margin-bottom: 8px;
+  text-shadow: 0 0 15px rgba(80, 200, 140, 0.2);
 }
 
 .form-sub {
   font-size: 14px;
-  color: #74c69d;
-  margin-bottom: 28px;
+  color: rgba(150, 210, 180, 0.7);
+  margin-bottom: 32px;
 }
 
 .error-tip {
   padding: 10px 14px;
-  background: rgba(239,68,68,0.08);
-  border: 1px solid rgba(239,68,68,0.25);
+  background: rgba(239,68,68,0.12);
+  border: 1px solid rgba(239,68,68,0.35);
   border-radius: 10px;
-  color: #ef4444;
+  color: #fca5a5;
   font-size: 13px;
   margin-bottom: 18px;
 }
 
 .field {
-  margin-bottom: 18px;
+  margin-bottom: 20px;
 }
 
 .field label {
   display: block;
   font-size: 13px;
   font-weight: 600;
-  color: #2d6a4f;
+  color: rgba(160, 220, 190, 0.85);
   margin-bottom: 7px;
 }
 
 .input-box {
   display: flex;
   align-items: center;
-  background: rgba(240,250,245,0.8);
-  border: 2px solid rgba(168,230,207,0.4);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1.5px solid rgba(80, 180, 130, 0.3);
   border-radius: 12px;
   padding: 0 14px;
   transition: all 0.25s;
+  backdrop-filter: blur(4px);
 }
 
 .input-box.focused {
-  border-color: #52b788;
-  background: white;
-  box-shadow: 0 0 0 4px rgba(82,183,136,0.12);
+  border-color: rgba(80, 200, 140, 0.6);
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 4px rgba(80, 180, 130, 0.12);
 }
 
 .field-icon {
   width: 18px; height: 18px;
-  color: #74c69d;
+  color: rgba(100, 200, 150, 0.7);
   flex-shrink: 0;
   margin-right: 10px;
 }
@@ -444,15 +462,15 @@ onUnmounted(() => {
   flex: 1;
   border: none;
   background: transparent;
-  padding: 13px 0;
+  padding: 14px 0;
   font-size: 14px;
-  color: #1b4332;
+  color: rgba(220, 250, 235, 0.95);
   outline: none;
 }
 
-.input-box input::placeholder { color: #b7e4c7; }
+.input-box input::placeholder { color: rgba(140, 200, 170, 0.4); }
 
-/* 隐藏浏览器（Chrome/Edge/Safari）原生密码显示眼睛按钮 */
+/* 隐藏浏览器原生密码显示眼睛按钮 */
 .input-box input[type="password"]::-ms-reveal,
 .input-box input[type="password"]::-ms-clear {
   display: none;
@@ -467,18 +485,18 @@ onUnmounted(() => {
   border: none;
   padding: 4px;
   cursor: pointer;
-  color: #74c69d;
+  color: rgba(120, 200, 160, 0.5);
   display: flex;
   align-items: center;
   transition: color 0.2s;
 }
-.eye-btn:hover { color: #52b788; }
+.eye-btn:hover { color: rgba(120, 220, 170, 0.9); }
 .eye-btn svg { width: 18px; height: 18px; }
 
 .form-opts {
   display: flex;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 
 .remember {
@@ -486,19 +504,19 @@ onUnmounted(() => {
   align-items: center;
   gap: 7px;
   font-size: 13px;
-  color: #52b788;
+  color: rgba(150, 210, 180, 0.7);
   cursor: pointer;
 }
 
 .remember input {
   width: 16px; height: 16px;
-  accent-color: #52b788;
+  accent-color: #4a9e7a;
 }
 
 .login-btn {
   width: 100%;
-  padding: 14px;
-  background: linear-gradient(135deg, #52b788 0%, #2d6a4f 100%);
+  padding: 15px;
+  background: linear-gradient(135deg, #2d8a5e 0%, #3da876 50%, #2d8a5e 100%);
   border: none;
   border-radius: 12px;
   font-size: 15px;
@@ -510,12 +528,12 @@ onUnmounted(() => {
   justify-content: center;
   gap: 8px;
   transition: all 0.25s;
-  box-shadow: 0 4px 14px rgba(82,183,136,0.35);
+  box-shadow: 0 4px 15px rgba(45, 138, 94, 0.3), 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .login-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 8px 22px rgba(82,183,136,0.45);
+  box-shadow: 0 8px 25px rgba(45, 138, 94, 0.45), 0 2px 6px rgba(0, 0, 0, 0.12);
 }
 
 .login-btn:disabled {
@@ -535,13 +553,14 @@ onUnmounted(() => {
 
 .footer-tip {
   text-align: center;
-  margin-top: 28px;
+  margin-top: 32px;
   font-size: 11px;
-  color: #b7e4c7;
+  color: rgba(120, 180, 150, 0.4);
 }
 
-@media (max-width: 700px) {
+/* 移动端：隐藏左侧 */
+@media (max-width: 768px) {
   .mud-side { display: none; }
-  .form-side { padding: 36px 28px; }
+  .form-side { width: 100%; padding: 36px 28px; }
 }
 </style>

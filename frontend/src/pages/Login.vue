@@ -21,21 +21,31 @@
       ></div>
     </div>
 
-    <div class="login-container">
-      <!-- 几何立方体装饰 -->
-      <div class="cube-decoration cube-top-right"></div>
-      <div class="cube-decoration cube-bottom-right"></div>
-      <div class="cube-decoration cube-bottom-left"></div>
-      <div class="cube-decoration cube-right-center"></div>
-      
+    <div class="login-split">
+      <!-- 左侧：场景图片 -->
       <div class="login-left">
-        <!-- 场景图片 -->
         <div class="scene-image">
           <img src="/images/b1eedd3e7a04e3594f1f9398fbbb99c4.jpg" alt="场景图片" class="scene-img" />
         </div>
       </div>
 
+      <!-- 右侧：登录表单 + 文案 -->
       <div class="login-right">
+        <!-- 背景文案装饰 -->
+        <div class="slogans">
+          <div class="slogan-item slogan-left">
+            <span class="slogan-text">以智为翼，与 AI 共赴新境</span>
+          </div>
+          <div class="slogan-item slogan-right">
+            <span class="slogan-text">知识沉淀于此，智能服务于你</span>
+          </div>
+          <div class="slogan-item slogan-left">
+            <span class="slogan-text">每一次交互，都是与未来的温柔对话</span>
+          </div>
+          <div class="slogan-item slogan-right">
+            <span class="slogan-text">智联万物，知见未来</span>
+          </div>
+        </div>
         <div class="login-box">
           <div class="login-logo">
             <img 
@@ -136,9 +146,6 @@ let trailId = 0
 let trailTimeout = null
 
 const handleMouseMove = (e) => {
-  mouseX.value = e.clientX
-  mouseY.value = e.clientY
-
   const newTrail = {
     id: trailId++,
     x: e.clientX,
@@ -191,13 +198,11 @@ const handleLogin = async () => {
 
 <style scoped>
 .login-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 40px 20px;
-  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="%237fcdcd" opacity="0.8"/></svg>') 12 12, auto;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
   position: relative;
+  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="%234a9e7a" opacity="0.7"/></svg>') 12 12, auto;
 }
 
 .watermark {
@@ -205,7 +210,7 @@ const handleLogin = async () => {
   bottom: 20px;
   right: 30px;
   font-size: 14px;
-  color: rgba(127, 205, 205, 0.5);
+  color: rgba(80, 150, 110, 0.45);
   font-weight: 500;
   pointer-events: none;
   z-index: 100;
@@ -227,149 +232,187 @@ const handleLogin = async () => {
   position: absolute;
   width: 16px;
   height: 16px;
-  background: radial-gradient(circle, rgba(127, 205, 205, 0.4) 0%, rgba(127, 205, 205, 0) 70%);
+  background: radial-gradient(circle, rgba(100, 190, 140, 0.4) 0%, rgba(100, 190, 140, 0) 70%);
   border-radius: 50%;
   transform: translate(-50%, -50%);
   transition: opacity 0.2s ease-out, transform 0.2s ease-out;
   pointer-events: none;
 }
 
-.login-container {
+/* 全屏左右分割布局 */
+.login-split {
   display: flex;
   width: 100%;
-  max-width: 1000px;
-  min-height: 550px;
-  background: linear-gradient(135deg, rgba(200, 240, 230, 0.95) 0%, rgba(255, 255, 255, 0.98) 50%, rgba(200, 240, 230, 0.95) 100%);
-  backdrop-filter: blur(20px);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-xl);
-  overflow: hidden;
+  height: 100%;
   position: relative;
-  z-index: 10;
-}
-
-/* 几何立方体装饰 */
-.cube-decoration {
-  position: absolute;
-  width: 60px;
-  height: 60px;
-  opacity: 0.15;
   z-index: 1;
 }
 
-.cube-decoration::before,
-.cube-decoration::after {
-  content: '';
-  position: absolute;
-  background: #7fcdcd;
-}
-
-.cube-decoration::before {
-  width: 100%;
-  height: 100%;
-  transform: rotateX(45deg) rotateZ(45deg);
-  border-radius: 4px;
-}
-
-.cube-decoration::after {
-  width: 60%;
-  height: 60%;
-  top: 20%;
-  left: 20%;
-  transform: rotateX(45deg) rotateZ(45deg);
-  background: rgba(127, 205, 205, 0.5);
-  border-radius: 3px;
-}
-
-.cube-top-right { top: 20px; right: 20px; }
-.cube-bottom-right { bottom: 20px; right: 40px; width: 40px; height: 40px; }
-.cube-bottom-left { bottom: 20px; left: 20px; width: 50px; height: 50px; }
-
-.cube-decoration {
-  animation: cubeFloat 6s ease-in-out infinite;
-}
-.cube-top-right { animation-delay: 0s; }
-.cube-bottom-right { animation-delay: 2s; }
-.cube-bottom-left { animation-delay: 4s; }
-.cube-right-center { animation-delay: 3s; }
-
-@keyframes cubeFloat {
-  0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.1; }
-  50% { transform: translateY(-10px) rotate(5deg); opacity: 0.2; }
-}
-
-.cube-right-center {
-  top: 50%;
-  right: 30%;
-  transform: translateY(-50%);
-  width: 35px;
-  height: 35px;
-}
-
-/* 左侧：泥巴人区域 */
+/* 左侧：图片区域 - 比例 42% */
 .login-left {
-  flex: 1;
-  background: linear-gradient(135deg, rgba(200, 240, 230, 0.9) 0%, rgba(220, 245, 235, 0.95) 100%);
-  padding: 40px;
+  width: 42%;
+  height: 100%;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   position: relative;
   overflow: hidden;
-  border-radius: var(--radius-xl) 0 0 var(--radius-xl);
+}
+
+/* 左右过渡渐变 - 白色过渡 */
+.login-left::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 100px;
+  height: 100%;
+  background: linear-gradient(to right, transparent 0%, rgba(255, 255, 255, 0.5) 50%, rgba(240, 253, 244, 0.9) 80%, #eefbf3 100%);
+  z-index: 2;
+  pointer-events: none;
 }
 
 .scene-image {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  z-index: 2;
   width: 100%;
   height: 100%;
 }
 
 .scene-img {
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
-  object-fit: contain;
-  border-radius: var(--radius);
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   user-select: none;
   pointer-events: none;
   -webkit-user-drag: none;
 }
 
-/* 右侧登录 */
-.login-right {
-  flex: 1;
-  padding: 50px 60px;
+/* 文案区域 - 放在右侧背景中 */
+.slogans {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: space-between;
+  padding: 80px 40px;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.slogan-item {
+  opacity: 0;
+  animation: fadeSlideIn 1.2s ease forwards;
+}
+
+.slogan-item:nth-child(1) { animation-delay: 0.5s; }
+.slogan-item:nth-child(2) { animation-delay: 1.0s; }
+.slogan-item:nth-child(3) { animation-delay: 1.5s; }
+.slogan-item:nth-child(4) { animation-delay: 2.0s; }
+
+.slogan-left {
+  text-align: left;
+  padding-left: 10px;
+}
+
+.slogan-right {
+  text-align: right;
+  padding-right: 10px;
+}
+
+.slogan-text {
+  font-size: 14px;
+  font-weight: 300;
+  color: rgba(60, 120, 80, 0.3);
+  letter-spacing: 3px;
+  line-height: 1.6;
   position: relative;
+  display: inline-block;
+  padding: 6px 0;
+  font-style: italic;
+}
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(15px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 右侧：登录表单 - 浅绿色 + 金色闪光 */
+.login-right {
+  width: 58%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #eefbf3 0%, #e0f5e9 25%, #f0faf4 50%, #e8f8ee 75%, #f5fdf8 100%);
+  padding: 50px 60px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 金色闪光光晕 */
+.login-right::before {
+  content: '';
+  position: absolute;
+  top: -30%;
+  left: -30%;
+  width: 160%;
+  height: 160%;
+  background: radial-gradient(ellipse at 25% 20%, rgba(212, 175, 55, 0.12) 0%, transparent 45%),
+              radial-gradient(ellipse at 75% 75%, rgba(180, 140, 40, 0.08) 0%, transparent 40%),
+              radial-gradient(ellipse at 60% 30%, rgba(255, 215, 0, 0.06) 0%, transparent 35%);
+  animation: goldShimmer 6s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+/* 绿色柔光 */
+.login-right::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at 15% 85%, rgba(80, 200, 120, 0.1) 0%, transparent 40%),
+              radial-gradient(circle at 85% 15%, rgba(100, 210, 140, 0.08) 0%, transparent 35%),
+              radial-gradient(circle at 50% 50%, rgba(212, 175, 55, 0.04) 0%, transparent 50%);
+  animation: greenGlow 8s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+@keyframes goldShimmer {
+  0% { transform: translate(0, 0) rotate(0deg); opacity: 0.7; }
+  50% { opacity: 1; }
+  100% { transform: translate(1%, 1%) rotate(0.5deg); opacity: 0.8; }
+}
+
+@keyframes greenGlow {
+  0% { opacity: 0.5; }
+  100% { opacity: 1; }
 }
 
 .login-box {
   width: 100%;
-  max-width: 320px;
-  margin: 0 auto;
+  max-width: 360px;
+  position: relative;
+  z-index: 1;
 }
 
 .login-title {
   text-align: center;
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 700;
-  color: var(--gray-800);
-  margin-bottom: 24px;
+  color: #2d6a4f;
+  margin-bottom: 28px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .login-logo {
@@ -390,23 +433,23 @@ const handleLogin = async () => {
 
 .error-message {
   padding: 12px 16px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
   border-radius: var(--radius);
-  color: #ef4444;
+  color: #dc2626;
   font-size: 14px;
   margin-bottom: 20px;
 }
 
 .form-group {
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 }
 
 .form-group label {
   display: block;
   font-size: 14px;
   font-weight: 500;
-  color: var(--gray-700);
+  color: #3d7a5a;
   margin-bottom: 8px;
 }
 
@@ -421,30 +464,31 @@ const handleLogin = async () => {
   left: 14px;
   width: 20px;
   height: 20px;
-  color: var(--primary);
+  color: rgba(60, 140, 90, 0.6);
   pointer-events: none;
 }
 
 .input {
   width: 100%;
   padding: 14px 14px 14px 46px;
-  border: 2px solid rgba(127, 205, 205, 0.3);
+  border: 1.5px solid rgba(80, 160, 120, 0.25);
   border-radius: var(--radius);
   font-size: 14px;
-  color: var(--gray-800);
+  color: #2d5a42;
   transition: all 0.3s ease;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(8px);
 }
 
 .input::placeholder {
-  color: var(--gray-400);
+  color: rgba(80, 140, 100, 0.4);
 }
 
 .input:focus {
   outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 4px rgba(127, 205, 205, 0.2);
-  background: white;
+  border-color: rgba(80, 180, 120, 0.5);
+  box-shadow: 0 0 0 4px rgba(80, 180, 120, 0.1), 0 2px 8px rgba(80, 160, 120, 0.1);
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .toggle-password {
@@ -454,12 +498,12 @@ const handleLogin = async () => {
   border: none;
   padding: 4px;
   cursor: pointer;
-  color: var(--gray-400);
+  color: rgba(80, 140, 100, 0.5);
   transition: color 0.2s;
 }
 
 .toggle-password:hover {
-  color: var(--primary);
+  color: rgba(60, 140, 90, 0.8);
 }
 
 .toggle-password svg {
@@ -481,19 +525,19 @@ const handleLogin = async () => {
   gap: 8px;
   cursor: pointer;
   font-size: 14px;
-  color: var(--gray-600);
+  color: #4a8a66;
 }
 
 .remember-me input {
   width: 18px;
   height: 18px;
-  accent-color: var(--primary);
+  accent-color: #4a9e7a;
 }
 
 .login-btn {
   width: 100%;
-  padding: 14px;
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  padding: 15px;
+  background: linear-gradient(135deg, #4a9e7a 0%, #3d9970 40%, #5ab88a 100%);
   border: none;
   border-radius: var(--radius);
   font-size: 16px;
@@ -505,11 +549,12 @@ const handleLogin = async () => {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  box-shadow: 0 4px 15px rgba(74, 158, 122, 0.25), 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .login-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(127, 205, 205, 0.4);
+  box-shadow: 0 8px 25px rgba(74, 158, 122, 0.35), 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
 .login-btn:disabled {
@@ -525,22 +570,18 @@ const handleLogin = async () => {
 .login-footer {
   text-align: center;
   margin-top: 40px;
+  position: relative;
+  z-index: 1;
 }
 
 .login-footer p {
   font-size: 12px;
-  color: var(--gray-400);
+  color: rgba(80, 140, 100, 0.5);
 }
 
+/* 移动端：隐藏左侧 */
 @media (max-width: 768px) {
-  .login-container {
-    flex-direction: column;
-  }
-  .login-left {
-    min-height: 260px;
-  }
-  .login-right {
-    padding: 30px;
-  }
+  .login-left { display: none; }
+  .login-right { width: 100%; padding: 30px; }
 }
 </style>

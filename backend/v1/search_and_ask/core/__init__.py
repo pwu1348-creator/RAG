@@ -9,7 +9,6 @@ from .retriever import (
     HybridRetriever,
     BM25Retriever,
     Reranker,
-    ParentChildRetriever,
 )
 from .chunker import ParentChildChunker
 from .qa import QuestionAnswering
@@ -19,7 +18,6 @@ __all__ = [
     "HybridRetriever",
     "BM25Retriever",
     "Reranker",
-    "ParentChildRetriever",
     "ParentChildChunker",
     "QuestionAnswering",
 ]
