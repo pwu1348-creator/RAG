@@ -283,20 +283,19 @@ class DatabaseManager:
     # ==================== User Operations ====================
 
     def create_user(self, username: str, password: str, email: str = None,
-                    phone: str = None, real_name: str = None,
                     department: str = None) -> Optional[str]:
         user_id = self.generate_id()
         password_hash = self.hash_password(password)
 
         sql = """
-        INSERT INTO users (user_id, username, password_hash, email, phone, real_name, department, created_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+        INSERT INTO users (user_id, username, password_hash, email, department, created_at)
+        VALUES (%s, %s, %s, %s, %s, NOW())
         """
 
         try:
             with self._get_connection() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute(sql, (user_id, username, password_hash, email, phone, real_name, department))
+                    cursor.execute(sql, (user_id, username, password_hash, email, department))
                     conn.commit()
             logger.info(f"Created user: {username}")
             return user_id
@@ -359,13 +358,13 @@ class DatabaseManager:
             params.append(status)
 
         if keyword:
-            where_clause += " AND (username LIKE %s OR email LIKE %s OR real_name LIKE %s)"
+            where_clause += " AND (username LIKE %s OR email LIKE %s)"
             like_pattern = f"%{keyword}%"
-            params.extend([like_pattern, like_pattern, like_pattern])
+            params.extend([like_pattern, like_pattern])
 
         count_sql = f"SELECT COUNT(*) as total FROM users {where_clause}"
         query_sql = f"""
-        SELECT user_id, username, email, phone, real_name, department, status, created_at
+        SELECT user_id, username, email, department, status, created_at
         FROM users {where_clause}
         ORDER BY created_at DESC
         LIMIT %s OFFSET %s
@@ -392,7 +391,7 @@ class DatabaseManager:
             raise
 
     def update_user(self, user_id: str, **kwargs) -> bool:
-        allowed_fields = ['username', 'email', 'phone', 'real_name', 'department', 'status', 'avatar_url']
+        allowed_fields = ['username', 'email', 'department', 'status', 'avatar_url']
         updates = []
         values = []
 
@@ -732,7 +731,7 @@ class DatabaseManager:
     def list_kb_users(self, kb_id: str, page: int = 1, size: int = 10) -> Dict[str, Any]:
         count_sql = "SELECT COUNT(*) as total FROM user_kb_relations WHERE kb_id = %s"
         query_sql = """
-        SELECT u.user_id, u.username, u.email, u.real_name, u.department, ukr.role, ukr.created_at
+        SELECT u.user_id, u.username, u.email, u.department, ukr.role, ukr.created_at
         FROM user_kb_relations ukr
         JOIN users u ON ukr.user_id = u.user_id
         WHERE ukr.kb_id = %s

@@ -12,11 +12,28 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
-os.environ["TEMP"] = r"D:\pengpengRAG\backend/v1/file_analysis\temp"
-os.environ["TMP"] = r"D:\pengpengRAG\backend/v1/file_analysis\temp"
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-os.environ['MINERU_TOOLS_CONFIG_JSON'] = r'D:\pengpengRAG\backend\v1\file_analysis\mineru.json'
+os.environ["TEMP"] = os.path.join(_BASE_DIR, "temp")
+os.environ["TMP"] = os.path.join(_BASE_DIR, "temp")
+
+# 动态生成 mineru.json，确保路径在任何机器上都正确
+_models_base = os.path.join(_BASE_DIR, 'models', 'models--opendatalab--PDF-Extract-Kit-1.0')
+_ref_path = os.path.join(_models_base, 'refs', 'main')
+_snapshot = open(_ref_path).read().strip() if os.path.exists(_ref_path) else 'd1336ee3c2975a8b26c4b09ff39dc6b593d34141'
+_snapshot_dir = os.path.join(_models_base, 'snapshots', _snapshot)
+_mineru_config = {
+    'models-dir': {
+        'pipeline': _snapshot_dir
+    }
+}
+_mineru_config_path = os.path.join(_BASE_DIR, 'mineru.json')
+with open(_mineru_config_path, 'w', encoding='utf-8') as _f:
+    json.dump(_mineru_config, _f, ensure_ascii=False, indent=2)
+
+os.environ['MINERU_TOOLS_CONFIG_JSON'] = _mineru_config_path
 os.environ['MINERU_MODEL_SOURCE'] = 'local'
+os.environ['HF_HUB_CACHE'] = os.path.join(_BASE_DIR, 'models')
 
 from config import config
 from utils.logger import logger

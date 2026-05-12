@@ -24,8 +24,6 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(64) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     email VARCHAR(128) UNIQUE,
-    phone VARCHAR(32),
-    real_name VARCHAR(64),
     avatar_url TEXT,
     department VARCHAR(128),
     status ENUM('active', 'inactive', 'locked') DEFAULT 'active',

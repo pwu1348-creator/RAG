@@ -37,13 +37,12 @@ class AdminService:
         return {'success': False, 'message': 'Failed to create admin'}
 
     def create_user(self, username: str, password: str,
-                    email: str = None, phone: str = None, real_name: str = None,
-                    department: str = None) -> Dict[str, Any]:
+                    email: str = None, department: str = None) -> Dict[str, Any]:
         existing = self.db.get_user_by_username(username)
         if existing:
             return {'success': False, 'message': 'Username already exists'}
 
-        user_id = self.db.create_user(username, password, email, phone, real_name, department)
+        user_id = self.db.create_user(username, password, email, department)
 
         if user_id:
             logger.info(f"User created: {username}")

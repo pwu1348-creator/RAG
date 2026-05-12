@@ -19,64 +19,63 @@
     <div v-else class="form-card">
       <form @submit.prevent="handleSubmit">
         <div class="form-group">
-          <label>账号 *</label>
-          <input 
-            type="text" 
-            v-model="form.username" 
-            placeholder="请输入登录账号" 
-            required
-          />
-        </div>
-
-        <div class="form-group">
-          <label>真实姓名</label>
-          <input 
-            type="text" 
-            v-model="form.real_name" 
-            placeholder="请输入真实姓名"
-          />
+          <label>账号 <span class="required">*</span></label>
+          <div class="input-wrapper">
+            <input
+              type="text"
+              v-model="form.username"
+              placeholder="请输入登录账号"
+              @blur="validateUsername"
+              :class="{ 'input-error': errors.username }"
+              required
+            />
+            <span class="field-hint error" v-if="errors.username">{{ errors.username }}</span>
+            <span class="field-hint" v-else>不少于6位纯数字</span>
+          </div>
         </div>
 
         <div class="form-group">
           <label>邮箱</label>
-          <input 
-            type="email" 
-            v-model="form.email" 
-            placeholder="请输入邮箱"
-          />
-        </div>
-
-        <div class="form-group">
-          <label>手机号</label>
-          <input 
-            type="text" 
-            v-model="form.phone" 
-            placeholder="请输入手机号"
-          />
+          <div class="input-wrapper">
+            <input
+              type="text"
+              v-model="form.email"
+              placeholder="请输入邮箱地址"
+              @blur="validateEmail"
+              :class="{ 'input-error': errors.email }"
+            />
+            <span class="field-hint error" v-if="errors.email">{{ errors.email }}</span>
+            <span class="field-hint" v-else>例如：user@example.com</span>
+          </div>
         </div>
 
         <div class="form-group">
           <label>部门</label>
-          <input 
-            type="text" 
-            v-model="form.department" 
+          <input
+            type="text"
+            v-model="form.department"
             placeholder="请输入部门"
           />
         </div>
 
         <div class="form-group">
           <label>重置密码</label>
-          <input 
-            type="password" 
-            v-model="form.password" 
-            placeholder="留空则不修改密码"
-          />
-          <span class="field-hint">如需修改密码请填写，否则留空</span>
+          <div class="input-wrapper">
+            <input
+              type="password"
+              v-model="form.password"
+              placeholder="留空则不修改密码"
+              @blur="validatePassword"
+              :class="{ 'input-error': errors.password }"
+            />
+            <span class="field-hint error" v-if="errors.password">{{ errors.password }}</span>
+            <span class="field-hint" v-else>至少8位，必须包含字母和数字（留空则不修改）</span>
+          </div>
         </div>
 
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" @click="$router.back()">取消</button>
-          <button type="submit" class="btn btn-primary" :disabled="submitting">
+          <button type="submit" class="btn btn-primary" :disabled="submitting || hasErrors">
             {{ submitting ? '保存中...' : '保存修改' }}
           </button>
         </div>
@@ -86,7 +85,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { adminApi } from '@/api'
 import { hashPassword } from '@/utils/crypto'
@@ -100,36 +99,84 @@ const form = reactive({
   username: '',
   password: '',
   email: '',
-  real_name: '',
-  phone: '',
   department: ''
 })
 
+const errors = reactive({
+  username: '',
+  password: '',
+  email: ''
+})
+
+const hasErrors = computed(() => {
+  return !!(errors.username || errors.password || errors.email)
+})
+
+// 验证账号：不少于6位纯数字
+const validateUsername = () => {
+  if (!form.username) {
+    errors.username = ''
+    return
+  }
+  if (!/^\d{6,}$/.test(form.username)) {
+    errors.username = '账号必须是不少于6位的纯数字'
+  } else {
+    errors.username = ''
+  }
+}
+
+// 验证密码：至少8位，必须包含字母和数字（编辑时可留空）
+const validatePassword = () => {
+  if (!form.password) {
+    errors.password = ''
+    return
+  }
+  if (form.password.length < 8) {
+    errors.password = '密码长度不能少于8位'
+  } else if (!/[a-zA-Z]/.test(form.password)) {
+    errors.password = '密码必须包含字母'
+  } else if (!/\d/.test(form.password)) {
+    errors.password = '密码必须包含数字'
+  } else if (!/^[a-zA-Z0-9]+$/.test(form.password)) {
+    errors.password = '密码只能包含字母和数字'
+  } else {
+    errors.password = ''
+  }
+}
+
+// 验证邮箱格式
+const validateEmail = () => {
+  if (!form.email) {
+    errors.email = ''
+    return
+  }
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+  if (!emailRegex.test(form.email)) {
+    errors.email = '请输入正确的邮箱格式，例如 user@example.com'
+  } else {
+    errors.email = ''
+  }
+}
+
 const fetchUserDetail = async () => {
   const userId = route.params.id
-  console.log('编辑用户，ID:', userId)
-  
+
   if (!userId) {
     alert('无效的用户ID')
     router.push('/users')
     return
   }
-  
+
   loading.value = true
   try {
-    console.log('调用API: /admin/users/' + userId)
     const res = await adminApi.getUserDetail(userId)
-    console.log('API返回:', res)
     if (res.data) {
       form.username = res.data.username || ''
       form.email = res.data.email || ''
-      form.real_name = res.data.real_name || ''
-      form.phone = res.data.phone || ''
       form.department = res.data.department || ''
     }
   } catch (error) {
     console.error('获取用户详情失败:', error)
-    console.error('错误详情:', error.response?.data)
     alert('获取用户详情失败: ' + (error.response?.data?.message || error.message || '网络错误，请检查后端服务'))
     router.push('/users')
   } finally {
@@ -139,18 +186,26 @@ const fetchUserDetail = async () => {
 
 const handleSubmit = async () => {
   const userId = route.params.id
+
+  // 触发验证
+  validateUsername()
+  validateEmail()
+  if (form.password) validatePassword()
+
+  if (hasErrors.value) {
+    alert('请修正表单中的错误')
+    return
+  }
+
   submitting.value = true
   try {
     const updateData = {
       username: form.username || undefined,
       email: form.email || undefined,
-      real_name: form.real_name || undefined,
-      phone: form.phone || undefined,
       department: form.department || undefined
     }
 
     if (form.password) {
-      // 前端密码加密：SHA-256 哈希后再传输
       const encryptedPassword = await hashPassword(form.password)
       await adminApi.resetUserPassword(userId, encryptedPassword)
     }
@@ -224,6 +279,14 @@ onMounted(() => {
   margin-bottom: 8px;
 }
 
+.required {
+  color: #ef4444;
+}
+
+.input-wrapper {
+  position: relative;
+}
+
 .form-group input {
   width: 100%;
   padding: 12px 16px;
@@ -232,6 +295,7 @@ onMounted(() => {
   font-size: 14px;
   outline: none;
   transition: border-color 0.2s;
+  box-sizing: border-box;
 }
 
 .form-group input:focus {
@@ -241,6 +305,21 @@ onMounted(() => {
 .form-group input:disabled {
   background: var(--gray-100);
   color: var(--gray-500);
+}
+
+.form-group input.input-error {
+  border-color: #ef4444;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--gray-400);
+}
+
+.field-hint.error {
+  color: #ef4444;
 }
 
 .form-actions {
@@ -307,12 +386,4 @@ onMounted(() => {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
-
-/* 字段提示 */
-.field-hint {
-  display: block;
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--gray-400);
-}
 </style>

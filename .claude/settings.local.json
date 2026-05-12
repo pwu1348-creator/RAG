@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(D:/pengpengRAG/backend/v1/search_and_ask/venv_RAG2/Scripts/pip.exe list *)",
-      "Bash(D:/pengpengRAG/backend/v1/search_and_ask/venv_RAG2/Scripts/python.exe *)"
-    ]
-  }
-}

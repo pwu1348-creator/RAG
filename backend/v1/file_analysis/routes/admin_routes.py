@@ -12,16 +12,12 @@ class CreateUserRequest(BaseModel):
     username: str
     password: str
     email: Optional[str] = None
-    phone: Optional[str] = None
-    real_name: Optional[str] = None
     department: Optional[str] = None
 
 
 class UpdateUserRequest(BaseModel):
     username: Optional[str] = None
     email: Optional[str] = None
-    phone: Optional[str] = None
-    real_name: Optional[str] = None
     department: Optional[str] = None
     status: Optional[str] = None
 
@@ -88,8 +84,6 @@ async def create_user(request: CreateUserRequest):
         username=request.username,
         password=request.password,
         email=request.email,
-        phone=request.phone,
-        real_name=request.real_name,
         department=request.department
     )
     if result["success"]:

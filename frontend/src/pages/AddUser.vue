@@ -14,49 +14,49 @@
       <form @submit.prevent="handleSubmit">
         <div class="form-group">
           <label>账号 <span class="required">*</span></label>
-          <input
-            type="text"
-            v-model="form.username"
-            placeholder="请输入登录账号"
-            required
-          />
-        </div>
-
-        <div class="form-group">
-          <label>真实姓名</label>
-          <input
-            type="text"
-            v-model="form.real_name"
-            placeholder="请输入真实姓名"
-          />
+          <div class="input-wrapper">
+            <input
+              type="text"
+              v-model="form.username"
+              placeholder="请输入登录账号"
+              @blur="validateUsername"
+              :class="{ 'input-error': errors.username }"
+              required
+            />
+            <span class="field-hint" v-if="errors.username">{{ errors.username }}</span>
+            <span class="field-hint hint-info" v-else>不少于6位纯数字</span>
+          </div>
         </div>
 
         <div class="form-group">
           <label>密码 <span class="required">*</span></label>
-          <input
-            type="password"
-            v-model="form.password"
-            placeholder="请输入密码"
-            required
-          />
-        </div>
-
-        <div class="form-group">
-          <label>手机号</label>
-          <input
-            type="text"
-            v-model="form.phone"
-            placeholder="请输入手机号"
-          />
+          <div class="input-wrapper">
+            <input
+              type="password"
+              v-model="form.password"
+              placeholder="请输入密码"
+              @blur="validatePassword"
+              :class="{ 'input-error': errors.password }"
+              required
+            />
+            <span class="field-hint" v-if="errors.password">{{ errors.password }}</span>
+            <span class="field-hint hint-info" v-else>至少8位，必须包含字母和数字</span>
+          </div>
         </div>
 
         <div class="form-group">
           <label>邮箱</label>
-          <input
-            type="email"
-            v-model="form.email"
-            placeholder="请输入邮箱"
-          />
+          <div class="input-wrapper">
+            <input
+              type="text"
+              v-model="form.email"
+              placeholder="请输入邮箱地址"
+              @blur="validateEmail"
+              :class="{ 'input-error': errors.email }"
+            />
+            <span class="field-hint" v-if="errors.email">{{ errors.email }}</span>
+            <span class="field-hint hint-info" v-else>例如：user@example.com</span>
+          </div>
         </div>
 
         <div class="form-group">
@@ -83,7 +83,7 @@
 
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" @click="$router.back()">取消</button>
-          <button type="submit" class="btn btn-primary" :disabled="submitting">
+          <button type="submit" class="btn btn-primary" :disabled="submitting || hasErrors">
             {{ submitting ? '提交中...' : '确认添加' }}
           </button>
         </div>
@@ -93,7 +93,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminApi } from '@/api'
 import { hashPassword } from '@/utils/crypto'
@@ -104,12 +104,66 @@ const departments = ref([])
 
 const form = reactive({
   username: '',
-  real_name: '',
   password: '',
-  phone: '',
   email: '',
   department: ''
 })
+
+const errors = reactive({
+  username: '',
+  password: '',
+  email: ''
+})
+
+const hasErrors = computed(() => {
+  return !!(errors.username || errors.password || errors.email)
+})
+
+// 验证账号：不少于6位纯数字
+const validateUsername = () => {
+  if (!form.username) {
+    errors.username = ''
+    return
+  }
+  if (!/^\d{6,}$/.test(form.username)) {
+    errors.username = '账号必须是不少于6位的纯数字'
+  } else {
+    errors.username = ''
+  }
+}
+
+// 验证密码：至少8位，必须包含字母和数字
+const validatePassword = () => {
+  if (!form.password) {
+    errors.password = ''
+    return
+  }
+  if (form.password.length < 8) {
+    errors.password = '密码长度不能少于8位'
+  } else if (!/[a-zA-Z]/.test(form.password)) {
+    errors.password = '密码必须包含字母'
+  } else if (!/\d/.test(form.password)) {
+    errors.password = '密码必须包含数字'
+  } else if (!/^[a-zA-Z0-9]+$/.test(form.password)) {
+    errors.password = '密码只能包含字母和数字'
+  } else {
+    errors.password = ''
+  }
+}
+
+// 验证邮箱格式
+const validateEmail = () => {
+  if (!form.email) {
+    errors.email = ''
+    return
+  }
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+  if (!emailRegex.test(form.email)) {
+    errors.email = '请输入正确的邮箱格式，例如 user@example.com'
+  } else {
+    errors.email = ''
+  }
+}
 
 // 从 localStorage 读取部门列表
 const loadDepartments = () => {
@@ -122,8 +176,18 @@ const loadDepartments = () => {
 }
 
 const handleSubmit = async () => {
+  // 触发所有验证
+  validateUsername()
+  validatePassword()
+  validateEmail()
+
   if (!form.username || !form.password) {
     alert('请填写账号和密码')
+    return
+  }
+
+  if (hasErrors.value) {
+    alert('请修正表单中的错误')
     return
   }
 
@@ -133,9 +197,7 @@ const handleSubmit = async () => {
     const encryptedPassword = await hashPassword(form.password)
     await adminApi.createUser({
       username: form.username,
-      real_name: form.real_name || undefined,
       password: encryptedPassword,
-      phone: form.phone || undefined,
       email: form.email || undefined,
       department: form.department || undefined
     })
@@ -209,6 +271,10 @@ onMounted(loadDepartments)
   color: #ef4444;
 }
 
+.input-wrapper {
+  position: relative;
+}
+
 .form-group input {
   width: 100%;
   padding: 12px 16px;
@@ -222,6 +288,21 @@ onMounted(loadDepartments)
 
 .form-group input:focus {
   border-color: var(--primary);
+}
+
+.form-group input.input-error {
+  border-color: #ef4444;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #ef4444;
+}
+
+.field-hint.hint-info {
+  color: var(--gray-400);
 }
 
 /* 下拉选择 */
