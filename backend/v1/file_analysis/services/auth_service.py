@@ -1,4 +1,5 @@
 import jwt
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -55,6 +56,10 @@ class AuthService:
 
     def admin_login(self, username: str, password: str,
                    login_ip: str = None, user_agent: str = None) -> Dict[str, Any]:
+        """
+        管理员登录
+        password 参数已经是前端 SHA-256 加密后的值
+        """
         admin = self.db.get_admin_by_username(username)
 
         if not admin:
@@ -65,8 +70,8 @@ class AuthService:
             self.db.create_login_log('admin', admin['admin_id'], login_ip, user_agent, 'failed', 'Account locked')
             return {'success': False, 'message': 'Account is locked or inactive'}
 
-        password_hash = self.db.hash_password(password)
-        if password_hash != admin['password_hash']:
+        # 使用 bcrypt 验证密码
+        if not self.db.verify_password(password, admin['password_hash']):
             self.db.create_login_log('admin', admin['admin_id'], login_ip, user_agent, 'failed', 'Wrong password')
             return {'success': False, 'message': 'Invalid username or password'}
 
@@ -98,6 +103,10 @@ class AuthService:
 
     def user_login(self, username: str, password: str,
                   login_ip: str = None, user_agent: str = None) -> Dict[str, Any]:
+        """
+        用户登录
+        password 参数已经是前端 SHA-256 加密后的值
+        """
         user = self.db.get_user_by_username(username)
         
         if not user:
@@ -108,8 +117,8 @@ class AuthService:
             self.db.create_login_log('user', user.get('user_id'), login_ip, user_agent, 'failed', 'Account locked')
             return {'success': False, 'message': 'Account is locked or inactive'}
         
-        password_hash = self.db.hash_password(password)
-        if password_hash != user.get('password_hash'):
+        # 使用 bcrypt 验证密码
+        if not self.db.verify_password(password, user.get('password_hash', '')):
             self.db.create_login_log('user', user.get('user_id'), login_ip, user_agent, 'failed', 'Wrong password')
             return {'success': False, 'message': 'Invalid username or password'}
         

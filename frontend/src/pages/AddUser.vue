@@ -96,6 +96,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminApi } from '@/api'
+import { hashPassword } from '@/utils/crypto'
 
 const router = useRouter()
 const submitting = ref(false)
@@ -128,10 +129,12 @@ const handleSubmit = async () => {
 
   submitting.value = true
   try {
+    // 前端密码加密：SHA-256 哈希后再传输
+    const encryptedPassword = await hashPassword(form.password)
     await adminApi.createUser({
       username: form.username,
       real_name: form.real_name || undefined,
-      password: form.password,
+      password: encryptedPassword,
       phone: form.phone || undefined,
       email: form.email || undefined,
       department: form.department || undefined

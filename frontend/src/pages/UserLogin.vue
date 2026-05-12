@@ -114,6 +114,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import FallingLeaves from '../components/FallingLeaves.vue'
 import MudMan from '../components/MudMan.vue'
+import { hashPassword } from '../utils/crypto'
 
 const router = useRouter()
 
@@ -176,9 +177,11 @@ async function handleLogin() {
 
   try {
     const { default: axios } = await import('axios')
+    // 前端密码加密：SHA-256 哈希后再传输
+    const encryptedPassword = await hashPassword(password.value)
     const res = await axios.post('/api/qa/auth/user/login', {
       username: username.value,
-      password: password.value,
+      password: encryptedPassword,
     })
     const data = res.data
     if (data.code === 200 && data.data?.success) {

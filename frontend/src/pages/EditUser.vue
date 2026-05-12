@@ -89,6 +89,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { adminApi } from '@/api'
+import { hashPassword } from '@/utils/crypto'
 
 const route = useRoute()
 const router = useRouter()
@@ -149,7 +150,9 @@ const handleSubmit = async () => {
     }
 
     if (form.password) {
-      await adminApi.resetUserPassword(userId, form.password)
+      // 前端密码加密：SHA-256 哈希后再传输
+      const encryptedPassword = await hashPassword(form.password)
+      await adminApi.resetUserPassword(userId, encryptedPassword)
     }
 
     await adminApi.updateUser(userId, updateData)

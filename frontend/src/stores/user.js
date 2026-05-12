@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { userApi } from '../api/user'
+import { hashPassword } from '../utils/crypto'
 
 export const useUserStore = defineStore('user', () => {
   // State
@@ -26,8 +27,14 @@ export const useUserStore = defineStore('user', () => {
   const login = async (credentials) => {
     error.value = ''
     try {
-      console.log('Login request:', credentials)
-      const response = await userApi.login(credentials)
+      // 前端密码加密：SHA-256 哈希后再传输
+      const encryptedPassword = await hashPassword(credentials.password)
+      const encryptedCredentials = {
+        username: credentials.username,
+        password: encryptedPassword
+      }
+      console.log('Login request (password encrypted)')
+      const response = await userApi.login(encryptedCredentials)
       console.log('Login response:', response)
       if (response.code === 200 && response.data && response.data.success) {
         console.log('Login success, setting token:', response.data.token)

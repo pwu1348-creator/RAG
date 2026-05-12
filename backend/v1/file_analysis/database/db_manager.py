@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 import pymysql
 from pymysql.cursors import DictCursor
+import bcrypt
 
 from config import config
 from utils.logger import logger
@@ -93,9 +94,12 @@ class DatabaseManager:
             return
         
         try:
+            # 模拟前端行为：先 SHA-256 哈希密码，再存储
+            # 因为前端登录时会先 SHA-256 加密再发送
+            password_sha256 = hashlib.sha256(password.encode()).hexdigest()
             admin_id = self.create_admin(
                 username=username,
-                password=password,
+                password=password_sha256,
                 email=email,
                 real_name='System Administrator',
                 role=role
@@ -109,7 +113,28 @@ class DatabaseManager:
 
     @staticmethod
     def hash_password(password: str) -> str:
-        return hashlib.sha256(password.encode()).hexdigest()
+        """
+        使用 bcrypt 对密码进行加盐哈希
+        前端已经做了 SHA-256，这里再用 bcrypt 加盐存储
+        """
+        password_bytes = password.encode('utf-8')
+        salt = bcrypt.gensalt(rounds=12)
+        hashed = bcrypt.hashpw(password_bytes, salt)
+        return hashed.decode('utf-8')
+
+    @staticmethod
+    def verify_password(password: str, password_hash: str) -> bool:
+        """
+        验证密码是否匹配 bcrypt 哈希
+        """
+        try:
+            password_bytes = password.encode('utf-8')
+            hash_bytes = password_hash.encode('utf-8')
+            return bcrypt.checkpw(password_bytes, hash_bytes)
+        except (ValueError, TypeError):
+            # 兼容旧的 SHA-256 哈希格式（迁移期）
+            legacy_hash = hashlib.sha256(password.encode()).hexdigest()
+            return legacy_hash == password_hash
 
     @staticmethod
     def generate_id() -> str:
