@@ -16,18 +16,12 @@
           基于 RAG 技术的智能知识库问答系统，让信息检索更高效、更精准
         </p>
         <div class="welcome-actions">
-          <router-link to="/qa" class="btn btn-primary">
+          <button class="btn btn-tutorial" @click="showTutorialModal = true">
             <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,12 11,11.75 11,15H13C13,12.75 16,12.5 16,10A4,4 0 0,0 12,6Z"/>
+              <path d="M11,18H13V16H11V18M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,11 13,11.5 12.5,12C11.5,13 11,14 11,15H13C13,13.5 14.5,13 15.5,12C16.5,11 16,9.5 16,10A4,4 0 0,0 12,6Z"/>
             </svg>
-            开始问答
-          </router-link>
-          <router-link to="/parser" class="btn btn-secondary">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
-            </svg>
-            上传文件
-          </router-link>
+            使用教程
+          </button>
         </div>
       </div>
       <div class="welcome-decoration">
@@ -36,6 +30,58 @@
         <div class="decoration-circle circle-3"></div>
       </div>
     </section>
+
+    <!-- 使用教程弹窗 -->
+    <div v-if="showTutorialModal" class="tutorial-overlay" @click.self="showTutorialModal = false">
+      <div class="tutorial-modal">
+        <div class="tutorial-header">
+          <h3>📖 使用教程</h3>
+          <button class="tutorial-close" @click="showTutorialModal = false">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
+            </svg>
+          </button>
+        </div>
+        <div class="tutorial-content">
+          <p class="tutorial-intro">欢迎使用 RAG 智能问答系统，请按照以下步骤完成配置：</p>
+          
+          <div class="tutorial-step">
+            <div class="step-number">1</div>
+            <div class="step-detail">
+              <h4>创建用户与部门管理</h4>
+              <p>进入<strong>用户管理</strong>页面，创建系统用户并为其分配所属部门。当知识库关联了某个部门后，该部门下的所有用户均可访问并使用该知识库进行问答。</p>
+            </div>
+          </div>
+
+          <div class="tutorial-step">
+            <div class="step-number">2</div>
+            <div class="step-detail">
+              <h4>上传与管理文件</h4>
+              <p>进入<strong>文档管理</strong>页面，上传需要纳入知识库的文件资料。系统支持统一管理所有已上传的文档，方便后续关联至不同知识库。</p>
+            </div>
+          </div>
+
+          <div class="tutorial-step">
+            <div class="step-number">3</div>
+            <div class="step-detail">
+              <h4>创建知识库并关联资源</h4>
+              <p>进入<strong>知识库管理</strong>页面，创建知识库并设置其归属（个人或部门）。将已上传的文件关联至知识库后，执行文档解析操作，系统将自动对文档内容进行切片和向量化处理。</p>
+            </div>
+          </div>
+
+          <div class="tutorial-step">
+            <div class="step-number">4</div>
+            <div class="step-detail">
+              <h4>开始智能问答</h4>
+              <p>文档解析完成后，用户或管理员即可选择对应的知识库发起问答。系统将基于知识库内容进行语义检索，为您提供精准的回答。</p>
+            </div>
+          </div>
+        </div>
+        <div class="tutorial-footer">
+          <button class="btn btn-primary" @click="showTutorialModal = false">我知道了</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 功能模块 -->
     <section class="features-section">
@@ -71,6 +117,8 @@
 <script setup>
 import { ref } from 'vue'
 
+const showTutorialModal = ref(false)
+
 const features = ref([
   {
     title: '用户管理',
@@ -87,18 +135,18 @@ const features = ref([
     bgGradient: 'linear-gradient(135deg, #7fcdcd 0%, #5cb8b2 100%)',
   },
   {
-    title: '智能问答',
-    desc: '基于 RAG 技术，精准检索，智能生成回答',
-    path: '/qa',
-    icon: 'M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,12 11,11.75 11,15H13C13,12.75 16,12.5 16,10A4,4 0 0,0 12,6Z',
-    bgGradient: 'linear-gradient(135deg, #b4e7ce 0%, #98d8c8 100%)',
-  },
-  {
     title: '知识库管理',
     desc: '管理知识库，解析文档',
     path: '/knowledge',
     icon: 'M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z',
     bgGradient: 'linear-gradient(135deg, #e8d5c4 0%, #d4c4b0 100%)',
+  },
+  {
+    title: '智能问答',
+    desc: '基于 RAG 技术，精准检索，智能生成回答',
+    path: '/qa',
+    icon: 'M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,12 11,11.75 11,15H13C13,12.75 16,12.5 16,10A4,4 0 0,0 12,6Z',
+    bgGradient: 'linear-gradient(135deg, #b4e7ce 0%, #98d8c8 100%)',
   },
 ])
 </script>
@@ -508,6 +556,190 @@ const features = ref([
 .activity-time {
   font-size: 12px;
   color: var(--gray-400);
+}
+
+/* 使用教程按钮 */
+.btn-tutorial {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(135deg, #a8e6cf 0%, #88d8b0 100%);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 14px rgba(168, 230, 207, 0.4);
+}
+
+.btn-tutorial:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(168, 230, 207, 0.5);
+}
+
+/* 教程弹窗 */
+.tutorial-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(4px);
+}
+
+.tutorial-modal {
+  background: white;
+  border-radius: 20px;
+  width: 100%;
+  max-width: 580px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  animation: modalIn 0.3s ease;
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.tutorial-header {
+  padding: 24px 28px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tutorial-header h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #333;
+}
+
+.tutorial-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: #f5f5f5;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  transition: all 0.3s;
+}
+
+.tutorial-close:hover {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.tutorial-close svg {
+  width: 18px;
+  height: 18px;
+}
+
+.tutorial-content {
+  padding: 28px;
+  overflow-y: auto;
+}
+
+.tutorial-intro {
+  font-size: 15px;
+  color: #555;
+  margin-bottom: 24px;
+  line-height: 1.6;
+}
+
+.tutorial-step {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 18px;
+  background: linear-gradient(135deg, #f8fdf9 0%, #f0faf3 100%);
+  border-radius: 14px;
+  border: 1px solid #e8f5e9;
+  transition: all 0.3s;
+}
+
+.tutorial-step:hover {
+  border-color: #a8e6cf;
+  box-shadow: 0 4px 12px rgba(168, 230, 207, 0.2);
+}
+
+.tutorial-step:last-child {
+  margin-bottom: 0;
+}
+
+.step-number {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  background: linear-gradient(135deg, #a8e6cf 0%, #88d8b0 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 700;
+  font-size: 15px;
+  box-shadow: 0 3px 8px rgba(168, 230, 207, 0.4);
+}
+
+.step-detail h4 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #2e7d32;
+  margin-bottom: 8px;
+}
+
+.step-detail p {
+  font-size: 14px;
+  color: #555;
+  line-height: 1.7;
+  margin: 0;
+}
+
+.step-detail strong {
+  color: #1b5e20;
+}
+
+.tutorial-footer {
+  padding: 16px 28px 24px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.tutorial-footer .btn-primary {
+  padding: 12px 32px;
+  background: linear-gradient(135deg, #a8e6cf 0%, #88d8b0 100%);
+  border: none;
+  border-radius: 12px;
+  color: white;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.tutorial-footer .btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(168, 230, 207, 0.5);
 }
 
 /* 响应式 */
