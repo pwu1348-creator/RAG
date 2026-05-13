@@ -6,10 +6,6 @@ export const userApi = {
     return request.post('/auth/admin/login', data)
   },
 
-  // 用户注册
-  register(data) {
-    return request.post('/auth/register', data)
-  },
 
   // 获取当前用户信息
   getUserInfo() {
@@ -41,8 +37,4 @@ export const userApi = {
     return request.delete(`/users/${id}`)
   },
 
-  // 修改密码
-  changePassword(data) {
-    return request.post('/user/change-password', data)
-  }
 }

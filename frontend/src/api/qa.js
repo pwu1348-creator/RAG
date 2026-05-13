@@ -112,33 +112,6 @@ export function streamAsk({
   })
 }
 
-// ---------------------------------------------------------------------------
-// 撰写模式
-// ---------------------------------------------------------------------------
-
-/** 撰写模式（非流式） */
-export function writeChat({ query, knowledge_base_id, top_k = 10, use_rerank = true, answer_mode = 'strict' }) {
-  return qaApi.post('/search/writechat', { query, knowledge_base_id, top_k, use_rerank, answer_mode })
-}
-
-/** 撰写模式（流式） */
-export function streamWriteChat({
-  query,
-  knowledge_base_id,
-  top_k = 10,
-  use_rerank = true,
-  answer_mode = 'strict',
-}) {
-  const token = localStorage.getItem('token') || ''
-  return fetch('/api/qa/search/writechat/stream', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, knowledge_base_id, top_k, use_rerank, answer_mode }),
-  })
-}
 
 // ---------------------------------------------------------------------------
 // 对话持久化管理（conversation_id 模式）

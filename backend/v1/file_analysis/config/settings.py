@@ -3,14 +3,13 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any
 from pathlib import Path
 
-# 加载统一配置文件 backend/v1/.env（在 Config 实例化之前）
 _env_path = Path(__file__).parent.parent.parent / ".env"
 if _env_path.exists():
     try:
         from dotenv import load_dotenv
         load_dotenv(_env_path, override=False)
     except ImportError:
-        pass  # python-dotenv 未安装时跳过，使用代码默认值
+        pass
 
 
 @dataclass
@@ -22,20 +21,10 @@ class ParserConfig:
     MAX_FILE_SIZE: int = 50
 
 
-# MinIO配置（暂时禁用，使用本地存储）
-# @dataclass
-# class MinIOConfig:
-#     ENDPOINT: str = "localhost:9000"
-#     ACCESS_KEY: str = "admin"
-#     SECRET_KEY: str = "wushipeng"
-#     BUCKET_NAME: str = "documents"
-#     SECURE: bool = False
-
 @dataclass
 class StorageConfig:
-    TYPE: str = "local"  # local 或 minio
+    TYPE: str = "local"
     LOCAL_PATH: str = "./uploads"
-    # MinIO配置（暂时禁用）
     MINIO_ENDPOINT: str = "localhost:9000"
     MINIO_ACCESS_KEY: str = "admin"
     MINIO_SECRET_KEY: str = "wushipeng"
@@ -44,8 +33,7 @@ class StorageConfig:
 
 @dataclass
 class ChromaDBConfig:
-    # 设置为null或空字符串使用本地持久化模式（无需启动服务）
-    HOST: str = ""  # 空字符串表示使用本地持久化模式
+    HOST: str = ""
     PORT: int = 8000
     COLLECTION_NAME: str = "document_chunks"
     PERSIST_DIRECTORY: str = "./chroma_db"
@@ -65,7 +53,6 @@ class MySQLConfig:
 class MinerUConfig:
     ENABLE_OCR: bool = True
     OCR_LANGUAGE: str = "ch_sim"
-    # 解析引擎: pipeline（管道普通模式）、vlm（VLM模式）、hybrid（混合模式）
     PARSE_ENGINE: str = "pipeline"
 
 
@@ -118,7 +105,7 @@ class ModelConfig:
 class Config:
     def __init__(self):
         self.parser = ParserConfig()
-        self.storage = StorageConfig()  # 使用本地存储配置
+        self.storage = StorageConfig()
         self.chromadb = ChromaDBConfig()
         self.mysql = MySQLConfig()
         self.mineru = MinerUConfig()
@@ -134,7 +121,6 @@ class Config:
         self.api.DEBUG = os.getenv('FILE_ANALYSIS_DEBUG', 'False').lower() == 'true'
         self.api.LOG_LEVEL = os.getenv('FILE_ANALYSIS_LOG_LEVEL', self.api.LOG_LEVEL)
         
-        # 存储配置
         self.storage.TYPE = os.getenv('STORAGE_TYPE', self.storage.TYPE)
         self.storage.LOCAL_PATH = os.getenv('STORAGE_LOCAL_PATH', self.storage.LOCAL_PATH)
         
@@ -150,7 +136,6 @@ class Config:
         
         self.parser.MAX_FILE_SIZE = int(os.getenv('MAX_FILE_SIZE_MB', self.parser.MAX_FILE_SIZE))
         
-        # MinerU 解析引擎配置
         self.mineru.PARSE_ENGINE = os.getenv('MINERU_PARSE_ENGINE', self.mineru.PARSE_ENGINE)
         
         self.embedding.BASE_URL = os.getenv('EMBEDDING_BASE_URL', self.embedding.BASE_URL)
@@ -164,7 +149,6 @@ class Config:
         self.admin.DEFAULT_PASSWORD = os.getenv('ADMIN_DEFAULT_PASSWORD', self.admin.DEFAULT_PASSWORD)
         self.admin.DEFAULT_EMAIL = os.getenv('ADMIN_DEFAULT_EMAIL', self.admin.DEFAULT_EMAIL)
 
-        # JWT 配置
         self.jwt.SECRET_KEY = os.getenv('JWT_SECRET_KEY', self.jwt.SECRET_KEY)
         self.jwt.ALGORITHM = os.getenv('JWT_ALGORITHM', self.jwt.ALGORITHM)
         self.jwt.ACCESS_TOKEN_EXPIRE_HOURS = int(os.getenv('JWT_EXPIRE_HOURS', self.jwt.ACCESS_TOKEN_EXPIRE_HOURS))

@@ -1,13 +1,3 @@
-"""
-回答风格预设（answer mode presets）
-
-两种预设模板，覆盖 LLM 采样参数 + 检索参数 + 系统提示词后缀：
-- strict（严谨）: 知识库 / 规章 / 法规 / 原文作答场景
-- loose  （宽松）: 闲聊 / 改写 / 扩写 / 娱乐场景
-
-前端通过 `answer_mode` 字段在每次问答请求时指定，后端根据该字段
-从本文件读取对应 preset 并解构到 LLM 请求体和检索调用中。
-"""
 
 from typing import Dict, Any, Literal
 
@@ -56,10 +46,16 @@ LOOSE_PRESET: Dict[str, Any] = {
         "use_kg": True,
         "kg_weight": 0.3,
     },
-    "system_suffix": (
-        "可以基于文档进行合理引申和补充，"
-        "但要明确区分哪些是文档原文、哪些是补充观点。"
+    "system_prompt_override": (
+        "你是一个有趣又靠谱的智能助手，既懂知识库里的专业内容，也能像朋友一样聊天。请遵守以下规则：\n"
+        "1. 优先参考下方「检索结果」中的内容来回答用户问题，涉及文档事实时要准确；\n"
+        "2. 如果检索结果不够完整或与问题关联不大，大胆结合自身知识进行补充和解释；\n"
+        "3. 语气自然随和，可以适当幽默、口语化、带点个性，不用端着；\n"
+        "4. 在陈述文档事实时保持准确，但在扩展解释、举例、类比时可以自由发挥；\n"
+        "5. 禁止输出「根据检索结果」「根据以上内容」等生硬的元描述；\n"
+        "6. 回答有条理就行，不必过于正式，像在跟用户面对面聊天一样。"
     ),
+    "system_suffix": "",
 }
 
 
@@ -72,5 +68,4 @@ DEFAULT_MODE: AnswerMode = "strict"
 
 
 def get_preset(mode: str) -> Dict[str, Any]:
-    """按名称获取 preset，未知 mode 回退到默认。"""
     return PRESETS.get(mode, PRESETS[DEFAULT_MODE])

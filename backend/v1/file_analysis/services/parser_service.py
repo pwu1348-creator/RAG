@@ -17,12 +17,10 @@ from services.embedding_service import EmbeddingService
 from core.document_parser import DocumentParser, DocumentProcessor
 
 
-# ─── Token 合并工具函数 ───────────────────────────────────────────────────────
 _tokenizer = RagTokenizer()
 
 
 def _tokenize_for_count(text: str) -> str:
-    """使用 RagTokenizer 分词，返回空格分隔的 token 字符串。"""
     try:
         return _tokenizer.tokenize(text)
     except Exception:
@@ -30,7 +28,6 @@ def _tokenize_for_count(text: str) -> str:
 
 
 def count_tokens(text: str) -> int:
-    """估算文本 token 数量。"""
     tks = _tokenize_for_count(text)
     return len(tks.split()) if tks else 0
 
@@ -39,15 +36,6 @@ def merge_chunks_by_token(
     chunks: List[Dict[str, Any]],
     chunk_token_num: int = 512,
 ) -> List[Dict[str, Any]]:
-    """
-    基于 token 数量的朴素合并。
-
-    遍历 chunks，将连续的小段落合并到一起，直到累计 token 数超过
-    chunk_token_num 阈值时新建下一个 chunk。
-    - 表格类型（table）不参与合并，独立保留。
-    - 单个段落本身超过阈值时也独立保留，不做拆分。
-    - 合并后重新生成 content_ltks / content_sm_ltks。
-    """
     if not chunks or chunk_token_num <= 0:
         return chunks
 
@@ -73,7 +61,6 @@ def merge_chunks_by_token(
         buffer_meta = None
 
     for chunk in chunks:
-        # 表格独立保留，不参与合并
         if chunk.get("type") == "table":
             _flush()
             merged.append(chunk)
@@ -82,17 +69,14 @@ def merge_chunks_by_token(
         content = chunk.get("content", "")
         token_count = count_tokens(content)
 
-        # 单个段落已超阈值，独立保留
         if token_count >= chunk_token_num:
             _flush()
             merged.append(chunk)
             continue
 
-        # 累加后超阈值，先 flush 再开新 buffer
         if buffer_token_count + token_count > chunk_token_num and buffer_contents:
             _flush()
 
-        # 加入 buffer
         buffer_contents.append(content)
         buffer_token_count += token_count
         if buffer_meta is None:
@@ -139,7 +123,7 @@ class ParserService:
         self.chromadb = ChromaDBService()
         self.embedding = EmbeddingService()
         self.executor = ThreadPoolExecutor(max_workers=4)
-        self.sequential_executor = ThreadPoolExecutor(max_workers=1)  # 知识库文档顺序解析
+        self.sequential_executor = ThreadPoolExecutor(max_workers=1)
         self._lock = threading.RLock()
     
     def create_task(
@@ -208,7 +192,6 @@ class ParserService:
             
             task.progress = 30
 
-            # 注入 token 合并函数，默认阈值 512
             chunk_token_num = task.options.get("chunk_token_num", 512)
             task.options["chunk_merger"] = lambda chunks: merge_chunks_by_token(chunks, chunk_token_num)
 
@@ -268,7 +251,6 @@ class ParserService:
                     if tenant_id:
                         self.chromadb.delete_document_chunks(tenant_id, task.knowledge_base_id, task.doc_id)
             
-            # Delete from local storage
             if task.minio_url:
                 object_name = f"{task.task_id}/{task.filename}"
                 try:
@@ -276,7 +258,6 @@ class ParserService:
                 except:
                     pass
             
-            # Delete local file
             if os.path.exists(task.file_path):
                 os.remove(task.file_path)
             

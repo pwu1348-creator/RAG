@@ -1,20 +1,12 @@
-#!/usr/bin/env python3
-"""
-知识图谱功能测试脚本
-
-验证 KG 系统是否正确部署和运行
-"""
 
 import requests
 import json
 import sys
 from typing import Dict, Any
 
-# 配置
 BASE_URL = "http://localhost:8002/api/v1/search"
 TIMEOUT = 10
 
-# 颜色输出
 class Color:
     GREEN = '\033[92m'
     RED = '\033[91m'
@@ -23,14 +15,12 @@ class Color:
     END = '\033[0m'
 
 def print_result(test_name: str, success: bool, message: str = ""):
-    """打印测试结果"""
     status = f"{Color.GREEN}✓ PASS{Color.END}" if success else f"{Color.RED}✗ FAIL{Color.END}"
     print(f"{status} | {test_name}")
     if message:
         print(f"      {message}")
 
 def test_kg_status() -> bool:
-    """测试 KG 状态端点"""
     print(f"\n{Color.BLUE}[测试 1] KG 状态检查{Color.END}")
     try:
         response = requests.get(
@@ -53,7 +43,6 @@ def test_kg_status() -> bool:
         return False
 
 def test_entity_extraction() -> bool:
-    """测试实体关系提取"""
     print(f"\n{Color.BLUE}[测试 2] 实体关系提取{Color.END}")
     try:
         payload = {
@@ -66,7 +55,7 @@ def test_entity_extraction() -> bool:
         response = requests.post(
             f"{BASE_URL}/kg/extract/sync",
             json=payload,
-            timeout=30  # 提取可能需要较长时间
+            timeout=30
         )
         
         if response.status_code == 200:
@@ -100,7 +89,6 @@ def test_entity_extraction() -> bool:
         return False
 
 def test_entity_search() -> bool:
-    """测试实体搜索"""
     print(f"\n{Color.BLUE}[测试 3] 实体搜索{Color.END}")
     try:
         payload = {
@@ -135,7 +123,6 @@ def test_entity_search() -> bool:
         return False
 
 def test_multihop_search() -> bool:
-    """测试多跳搜索"""
     print(f"\n{Color.BLUE}[测试 4] 多跳关联查询{Color.END}")
     try:
         payload = {
@@ -172,7 +159,6 @@ def test_multihop_search() -> bool:
         return False
 
 def test_qa_with_kg() -> bool:
-    """测试问答（启用 KG）"""
     print(f"\n{Color.BLUE}[测试 5] 问答（使用 KG）{Color.END}")
     try:
         payload = {
@@ -186,7 +172,7 @@ def test_qa_with_kg() -> bool:
         response = requests.post(
             f"{BASE_URL}/ask",
             json=payload,
-            timeout=30  # 问答可能需要较长时间
+            timeout=30
         )
         
         if response.status_code == 200:
@@ -217,14 +203,13 @@ def test_qa_with_kg() -> bool:
         return False
 
 def test_connectivity() -> bool:
-    """测试基本连接"""
     print(f"\n{Color.BLUE}[测试 0] 基本连接{Color.END}")
     try:
         response = requests.get(
             f"{BASE_URL}/../kb_list",
             timeout=TIMEOUT
         )
-        if response.status_code in [200, 404]:  # 即使 404 也说明服务在运行
+        if response.status_code in [200, 404]:
             print_result("连接 QA Service", True, f"服务地址: {BASE_URL}")
             return True
         else:
@@ -242,7 +227,6 @@ def test_connectivity() -> bool:
         return False
 
 def main():
-    """主测试流程"""
     print(f"{Color.BLUE}{'='*60}")
     print(f"知识图谱功能测试 - PengPeng RAG System")
     print(f"{'='*60}{Color.END}")
@@ -250,7 +234,6 @@ def main():
     
     results = {}
     
-    # 测试 0: 基本连接
     results['connectivity'] = test_connectivity()
     if not results['connectivity']:
         print(f"\n{Color.RED}错误: 无法连接到服务！请确保：{Color.END}")
@@ -258,7 +241,6 @@ def main():
         print("2. 服务运行地址正确: http://localhost:8002")
         return 1
     
-    # 测试 1: KG 状态
     results['kg_status'] = test_kg_status()
     if not results['kg_status']:
         print(f"\n{Color.RED}错误: KG 服务未启用！请检查：{Color.END}")
@@ -266,19 +248,14 @@ def main():
         print("2. 依赖已安装: pip install -r requirements.txt")
         return 1
     
-    # 测试 2: 实体提取
     results['extraction'] = test_entity_extraction()
     
-    # 测试 3: 实体搜索
     results['search'] = test_entity_search()
     
-    # 测试 4: 多跳查询
     results['multihop'] = test_multihop_search()
     
-    # 测试 5: 问答
     results['qa'] = test_qa_with_kg()
     
-    # 总结
     print(f"\n{Color.BLUE}{'='*60}")
     print("测试总结")
     print(f"{'='*60}{Color.END}")

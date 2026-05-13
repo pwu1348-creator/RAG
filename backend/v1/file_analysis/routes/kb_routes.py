@@ -22,7 +22,7 @@ class CreateKBRequest(BaseModel):
     embedding_model: Optional[str] = None
     vector_dimension: int = 1024
     owner_id: Optional[str] = None
-    owner_type: Optional[str] = None  # 'user' | 'department' | 'admin'
+    owner_type: Optional[str] = None
 
 
 class BatchParseRequest(BaseModel):
@@ -85,7 +85,14 @@ async def get_knowledge_base(kb_id: str):
 
 @router.put("/{kb_id}")
 async def update_knowledge_base(kb_id: str, request: UpdateKBRequest):
-    update_data = {k: v for k, v in request.dict().items() if v is not None}
+    nullable_fields = {'owner_type', 'owner_id'}
+    raw = request.dict()
+    update_data = {}
+    for k, v in raw.items():
+        if v is not None:
+            update_data[k] = v
+        elif k in nullable_fields:
+            update_data[k] = None
     if not update_data:
         return error_response("No valid fields to update", 400)
     result = admin_service.update_knowledge_base("system", kb_id, **update_data)

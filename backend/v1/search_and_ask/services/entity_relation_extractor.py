@@ -21,10 +21,6 @@ from services.knowledge_graph_service import (
 from utils.logger import logger
 
 
-# ============================================================================
-# 提示词模板
-# ============================================================================
-
 EXTRACTION_PROMPT = """
 你是一个专业的知识图谱提取专家。请从以下文本中提取实体和关系信息。
 
@@ -77,10 +73,6 @@ EXTRACTION_PROMPT = """
 """
 
 
-# ============================================================================
-# 实体和关系提取器
-# ============================================================================
-
 class EntityRelationExtractor:
     """实体和关系提取器"""
     
@@ -111,7 +103,6 @@ class EntityRelationExtractor:
             return [], []
         
         try:
-            # 分块处理大文本
             chunks = self._split_text(content, chunk_size)
             all_entities = []
             all_relations = []
@@ -124,11 +115,9 @@ class EntityRelationExtractor:
                 all_entities.extend(entities)
                 all_relations.extend(relations)
             
-            # 去重和合并
             unique_entities = self._deduplicate_entities(all_entities)
             unique_relations = self._deduplicate_relations(all_relations)
             
-            # 存储到知识图谱
             for entity in unique_entities:
                 self.kg_service.create_entity(entity)
             
@@ -154,17 +143,14 @@ class EntityRelationExtractor:
     ) -> Tuple[List[Entity], List[Relation]]:
         """提取单个文本块"""
         try:
-            # 构建提示词
             prompt = EXTRACTION_PROMPT.format(
                 text=text,
                 max_entities=config.kg.MAX_ENTITIES_PER_DOC,
                 max_relations=config.kg.MAX_RELATIONS_PER_DOC,
             )
             
-            # 调用 LLM
             result_text = await self._call_llm(prompt)
             
-            # 解析输出
             entities, relations = self._parse_extraction(
                 result_text, doc_id, kb_id, text
             )
@@ -222,7 +208,6 @@ class EntityRelationExtractor:
         relations = []
         
         try:
-            # 尝试从 result_text 中提取 JSON
             json_text = result_text
             if "```json" in result_text:
                 json_text = result_text.split("```json")[1].split("```")[0]
@@ -231,10 +216,8 @@ class EntityRelationExtractor:
             
             data = json.loads(json_text)
             
-            # 构建实体映射（用于关系验证）
             entity_names = set()
             
-            # 处理实体
             for item in data.get("entities", []):
                 if item.get("confidence", 0) < config.kg.MIN_CONFIDENCE:
                     continue
@@ -258,7 +241,6 @@ class EntityRelationExtractor:
                 )
                 entities.append(entity)
             
-            # 处理关系（只保留两端都有的关系）
             for item in data.get("relations", []):
                 if item.get("confidence", 0) < config.kg.MIN_CONFIDENCE:
                     continue
@@ -269,7 +251,6 @@ class EntityRelationExtractor:
                 if not source or not target:
                     continue
                 
-                # 验证实体存在
                 if source not in entity_names or target not in entity_names:
                     continue
                 
@@ -307,7 +288,6 @@ class EntityRelationExtractor:
         chunks = []
         current_chunk = ""
         
-        # 按句子分割（保留上下文）
         sentences = text.replace("。", "。\n").replace("！", "！\n").replace("？", "？\n").split("\n")
         
         for sentence in sentences:
@@ -342,7 +322,6 @@ class EntityRelationExtractor:
             if entity.id not in seen:
                 seen[entity.id] = entity
             else:
-                # 合并 doc_ids
                 seen[entity.id].doc_ids = list(set(
                     seen[entity.id].doc_ids + entity.doc_ids
                 ))
@@ -356,7 +335,6 @@ class EntityRelationExtractor:
             if key not in seen:
                 seen[key] = relation
             else:
-                # 合并 doc_ids 和更新置信度
                 seen[key].doc_ids = list(set(
                     seen[key].doc_ids + relation.doc_ids
                 ))

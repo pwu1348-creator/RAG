@@ -6,7 +6,6 @@ from utils.logger import logger
 
 
 class MinIOService:
-    """文件存储服务（暂时使用本地存储替代MinIO）"""
     _instance = None
 
     def __new__(cls):

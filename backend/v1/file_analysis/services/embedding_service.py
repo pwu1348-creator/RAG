@@ -34,7 +34,6 @@ class EmbeddingService:
             )
 
     def detect_vector_dimension(self, test_text: str = "Hello, world!") -> int:
-        """检测embedding向量的维度"""
         if EmbeddingService._vector_dim is not None:
             return EmbeddingService._vector_dim
 
@@ -49,13 +48,11 @@ class EmbeddingService:
             return config.embedding.DIMENSIONS
 
     def get_vector_dimension(self) -> int:
-        """获取当前向量维度"""
         if EmbeddingService._vector_dim is None:
             return self.detect_vector_dimension()
         return EmbeddingService._vector_dim
 
     def check_ollama_compatible(self) -> bool:
-        """检查是否是Ollama兼容接口"""
         base_url = config.embedding.BASE_URL
         return "ollama" in base_url.lower() or "11434" in base_url
 
@@ -77,7 +74,6 @@ class EmbeddingService:
             raise
 
     def _encode_openai(self, texts: List[str], dimensions: int) -> List[List[float]]:
-        """使用OpenAI兼容接口"""
         response = EmbeddingService._client.embeddings.create(
             input=texts,
             model=config.embedding.MODEL,
@@ -89,7 +85,6 @@ class EmbeddingService:
         return embeddings
 
     def _encode_ollama(self, texts: List[str]) -> List[List[float]]:
-        """使用Ollama接口"""
         embeddings = []
         base_url = config.embedding.BASE_URL.rstrip('/')
         

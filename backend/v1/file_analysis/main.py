@@ -5,7 +5,6 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# 加载统一配置文件 backend/v1/.env
 _env_path = Path(__file__).parent.parent / ".env"
 if _env_path.exists():
     from dotenv import load_dotenv
@@ -52,7 +51,6 @@ def create_app() -> FastAPI:
     app.include_router(kb_router, prefix=f"{config.api.API_PREFIX}/knowledge-bases")
     app.include_router(settings_router, prefix=f"{config.api.API_PREFIX}/settings")
 
-    # 静态文件: 头像、文档图片等
     _uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
     os.makedirs(_uploads_dir, exist_ok=True)
     app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
@@ -89,14 +87,14 @@ def main():
 ║  API前缀: {config.api.API_PREFIX}                         ║
 ║  调试模式: {'开启' if config.api.DEBUG else '关闭'}         ║
 ╚══════════════════════════════════════════════════════════╝
-    """)
+""")
 
     uvicorn.run(
         "main:create_app",
         host=config.api.HOST,
         port=8001,
         reload=config.api.DEBUG,
-        factory=True
+        factory=True,
     )
 
 

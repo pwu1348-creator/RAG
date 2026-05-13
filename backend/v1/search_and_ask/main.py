@@ -1,12 +1,3 @@
-"""
-Search & Ask Service 入口
-
-检索与问答微服务 (Port 8002)
-
-启动方式:
-    cd backend/v1/search_and_ask
-    python main.py
-"""
 
 import os
 import sys
@@ -49,9 +40,7 @@ def create_app() -> FastAPI:
         allow_headers=config.api.CORS_ALLOW_HEADERS,
     )
 
-    # auth 路由挂在 /api/v1 下，不加 /search 前缀
     app.include_router(auth_router, prefix=config.api.API_PREFIX)
-    # 检索/问答/索引路由挂在 /api/v1/search 下
     app.include_router(search_router, prefix=f"{config.api.API_PREFIX}/search")
 
     @app.get("/health")

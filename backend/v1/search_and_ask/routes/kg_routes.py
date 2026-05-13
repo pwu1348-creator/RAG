@@ -1,12 +1,3 @@
-"""
-知识图谱管理路由
-
-提供接口：
-  - 提取文档的实体和关系
-  - 查询知识图谱
-  - 删除知识库的图数据
-  - 导出知识图谱结构
-"""
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
@@ -22,12 +13,7 @@ kg_service = KnowledgeGraphService()
 extractor = EntityRelationExtractor()
 
 
-# ============================================================================
-# 数据模型
-# ============================================================================
-
 class ExtractRequest(BaseModel):
-    """实体关系提取请求"""
     doc_id: str
     kb_id: str
     content: str
@@ -35,39 +21,26 @@ class ExtractRequest(BaseModel):
 
 
 class EntitySearchRequest(BaseModel):
-    """实体搜索请求"""
     name: str
     limit: int = 10
 
 
 class MultiHopSearchRequest(BaseModel):
-    """多跳搜索请求"""
     entity_name: str
     hops: int = 2
     limit: int = 50
 
 
 class DeleteKBRequest(BaseModel):
-    """删除知识库数据请求"""
     kb_id: str
 
 
-# ============================================================================
-# 路由处理
-# ============================================================================
-
 @router.post("/kg/extract")
 async def extract_entities_and_relations(request: ExtractRequest, background_tasks: BackgroundTasks):
-    """
-    从文档提取实体和关系
-    
-    异步处理：在后台执行提取，立即返回
-    """
     if not kg_service.is_enabled():
         raise HTTPException(status_code=503, detail="知识图谱服务未启用")
     
     try:
-        # 异步执行提取
         background_tasks.add_task(
             extractor.extract_from_document,
             request.doc_id,
@@ -89,11 +62,6 @@ async def extract_entities_and_relations(request: ExtractRequest, background_tas
 
 @router.post("/kg/extract/sync")
 async def extract_entities_and_relations_sync(request: ExtractRequest):
-    """
-    从文档同步提取实体和关系（等待结果）
-    
-    注意：大文档可能耗时较长
-    """
     if not kg_service.is_enabled():
         raise HTTPException(status_code=503, detail="知识图谱服务未启用")
     
@@ -138,9 +106,6 @@ async def extract_entities_and_relations_sync(request: ExtractRequest):
 
 @router.post("/kg/search/entity")
 async def search_entity(request: EntitySearchRequest):
-    """
-    搜索知识图谱中的实体
-    """
     if not kg_service.is_enabled():
         raise HTTPException(status_code=503, detail="知识图谱服务未启用")
     
@@ -169,9 +134,6 @@ async def search_entity(request: EntitySearchRequest):
 
 @router.post("/kg/search/multihop")
 async def search_multihop(request: MultiHopSearchRequest):
-    """
-    多跳路径搜索（找出实体的关联节点）
-    """
     if not kg_service.is_enabled():
         raise HTTPException(status_code=503, detail="知识图谱服务未启用")
     
@@ -199,11 +161,6 @@ async def search_multihop(request: MultiHopSearchRequest):
 
 @router.post("/kg/delete/kb")
 async def delete_kb_graph(request: DeleteKBRequest):
-    """
-    删除知识库相关的所有图数据
-    
-    警告：此操作不可逆
-    """
     if not kg_service.is_enabled():
         raise HTTPException(status_code=503, detail="知识图谱服务未启用")
     
@@ -226,9 +183,6 @@ async def delete_kb_graph(request: DeleteKBRequest):
 
 @router.get("/kg/status")
 async def get_kg_status():
-    """
-    获取知识图谱服务状态
-    """
     try:
         return {
             "status": "success",

@@ -155,13 +155,11 @@ class MySQLService:
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         
-        # 修复：将 extra_metadata 转换为 JSON 字符串
         extra_metadata = metadata.extra_metadata
         if isinstance(extra_metadata, dict):
             extra_metadata = json.dumps(extra_metadata)
         elif extra_metadata is None:
             extra_metadata = json.dumps({})
-        # 如果已经是字符串，直接使用
         
         conn = None
         try:

@@ -154,11 +154,8 @@ async def get_supported_formats():
     })
 
 
-# ==================== 解析引擎管理 ====================
-
 @router.get("/parse-engine")
 async def get_parse_engine():
-    """获取当前解析引擎配置"""
     return success_response(data={
         'current_engine': config.mineru.PARSE_ENGINE,
         'supported_engines': list(SUPPORTED_ENGINES),
@@ -172,7 +169,6 @@ async def get_parse_engine():
 
 @router.put("/parse-engine")
 async def set_parse_engine(request: dict):
-    """切换解析引擎模式"""
     engine = request.get('engine', '').lower().strip()
     if engine not in SUPPORTED_ENGINES:
         return error_response(

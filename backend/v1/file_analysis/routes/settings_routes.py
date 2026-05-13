@@ -114,8 +114,6 @@ async def update_settings_batch(
         return success_response(data=result, message="Some settings failed to update")
 
 
-# ==================== API Configs ====================
-
 @router.get("/api-configs")
 async def list_api_configs(
     api_type: Optional[str] = Query(None),
@@ -204,8 +202,6 @@ async def set_default_api_config(api_id: str, current_admin: dict = Depends(get_
     else:
         return error_response(result["message"], 400)
 
-
-# ==================== Retrieval Settings ====================
 
 @router.get("/retrieval")
 async def get_retrieval_settings(

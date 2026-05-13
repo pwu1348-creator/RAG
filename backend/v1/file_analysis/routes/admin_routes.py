@@ -174,7 +174,6 @@ async def upload_user_avatar(user_id: str, file: UploadFile = File(...)):
 
     avatar_url = f"/uploads/avatars/{avatar_filename}"
 
-    # 更新用户的 avatar_url
     admin_service.update_user(user_id, avatar_url=avatar_url)
 
     return success_response(data={"avatar_url": avatar_url}, message="Avatar uploaded")

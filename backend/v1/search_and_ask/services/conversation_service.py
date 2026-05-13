@@ -26,10 +26,6 @@ from config import config
 from utils.logger import logger
 
 
-# ---------------------------------------------------------------------------
-# 建表 SQL（首次启动自动执行）
-# ---------------------------------------------------------------------------
-
 _CREATE_CONVERSATIONS_SQL = """
 CREATE TABLE IF NOT EXISTS chat_conversations (
     id          VARCHAR(64)  PRIMARY KEY COMMENT '会话唯一ID',
@@ -77,9 +73,6 @@ class ConversationService:
         self._initialized = True
         self._ensure_tables()
 
-    # ------------------------------------------------------------------
-    # 内部：数据库连接
-    # ------------------------------------------------------------------
 
     def _get_conn(self):
         return pymysql.connect(
@@ -104,9 +97,6 @@ class ConversationService:
         except Exception as e:
             logger.error(f"[ConversationService] 建表失败: {e}")
 
-    # ------------------------------------------------------------------
-    # 公开接口
-    # ------------------------------------------------------------------
 
     def create(
         self,

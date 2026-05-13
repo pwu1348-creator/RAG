@@ -77,6 +77,10 @@
           </div>
         </div>
         <div class="topbar-right">
+          <button class="theme-toggle-btn" @click="toggleTheme" :title="isDarkTheme ? '切换亮色' : '切换暗色'">
+            <svg v-if="isDarkTheme" viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,2L14.39,5.42C13.65,5.15 12.84,5 12,5C11.16,5 10.35,5.15 9.61,5.42L12,2M3.34,7L7.5,6.65C6.9,7.16 6.36,7.78 5.93,8.5C5.5,9.24 5.25,10 5.11,10.79L3.34,7M3.36,17L5.12,13.23C5.26,14 5.53,14.78 5.95,15.5C6.37,16.22 6.91,16.85 7.5,17.37L3.36,17M20.65,7L18.88,10.79C18.74,10 18.47,9.23 18.05,8.5C17.63,7.78 17.1,7.15 16.5,6.63L20.65,7M20.64,17L16.5,17.36C17.09,16.85 17.62,16.22 18.05,15.5C18.47,14.78 18.73,14 18.87,13.21L20.64,17M12,22L9.59,18.56C10.33,18.83 11.14,19 12,19C12.82,19 13.63,18.83 14.37,18.56L12,22Z"/></svg>
+            <svg v-else viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M17.75,4.09L15.22,6.03L16.13,9.09L13.5,7.28L10.87,9.09L11.78,6.03L9.25,4.09L12.44,4L13.5,1L14.56,4L17.75,4.09M21.25,11L19.61,12.25L20.2,14.23L18.5,13.06L16.8,14.23L17.39,12.25L15.75,11L17.81,10.95L18.5,9L19.19,10.95L21.25,11M18.97,15.95C19.8,15.87 20.69,17.05 20.16,17.8C19.84,18.25 19.5,18.67 19.08,19.07C15.17,23 8.84,23 4.94,19.07C1.03,15.17 1.03,8.83 4.94,4.93C5.34,4.53 5.76,4.17 6.21,3.85C6.96,3.32 8.14,4.21 8.06,5.04C7.79,7.9 8.75,10.87 10.95,13.06C13.14,15.26 16.1,16.22 18.97,15.95Z"/></svg>
+          </button>
           <span class="user-badge">{{ userInfo.username || '用户' }}</span>
         </div>
       </div>
@@ -213,21 +217,6 @@
       </div>
     </Transition>
 
-    <!-- 参考来源 Tooltip -->
-    <div
-      v-if="sourceTooltip.visible"
-      class="source-tooltip"
-      :style="{ top: sourceTooltip.y + 'px', left: sourceTooltip.x + 'px' }"
-    >
-      <div class="tooltip-header">
-        <span class="tooltip-label">检索段落</span>
-        <span v-if="sourceTooltip.data.score" class="tooltip-score">相关度 {{ (sourceTooltip.data.score * 100).toFixed(0) }}%</span>
-      </div>
-      <div class="tooltip-content">{{ sourceTooltip.data.content_preview || '无内容' }}</div>
-      <div class="tooltip-meta">
-        <span v-if="sourceTooltip.data.page_idx">页码: {{ sourceTooltip.data.page_idx }}</span>
-      </div>
-    </div>
 
     <!-- 个人信息面板 -->
     <Transition name="panel">
@@ -240,14 +229,24 @@
             </button>
           </div>
           <div class="panel-body">
-            <div class="profile-avatar">{{ (userInfo.username || 'U')[0].toUpperCase() }}</div>
+            <!-- 头像区域：点击上传 -->
+            <div class="profile-avatar-wrap" @click="triggerAvatarUpload">
+              <img v-if="pendingAvatarPreview" :src="pendingAvatarPreview" class="profile-avatar-img" />
+              <img v-else-if="userInfo.avatar_url" :src="userInfo.avatar_url" class="profile-avatar-img" />
+              <div v-else class="profile-avatar">{{ (userInfo.username || 'U')[0].toUpperCase() }}</div>
+              <div class="avatar-overlay">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M4,4H7L9,2H15L17,4H20A2,2 0 0,1 22,6V18A2,2 0 0,1 20,20H4A2,2 0 0,1 2,18V6A2,2 0 0,1 4,4M12,7A5,5 0 0,0 7,12A5,5 0 0,0 12,17A5,5 0 0,0 17,12A5,5 0 0,0 12,7M12,9A3,3 0 0,1 15,12A3,3 0 0,1 12,15A3,3 0 0,1 9,12A3,3 0 0,1 12,9Z"/></svg>
+                <span>更换头像</span>
+              </div>
+              <input ref="avatarInputRef" type="file" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none" @change="handleAvatarChange" />
+            </div>
             <div class="form-field">
               <label>用户名</label>
               <input v-model="profileForm.username" type="text" class="panel-input" />
             </div>
             <div class="form-field">
-              <label>邮箱</label>
-              <input v-model="profileForm.email" type="email" class="panel-input" placeholder="选填" />
+              <label>原密码</label>
+              <input v-model="profileForm.oldPassword" type="password" class="panel-input" placeholder="修改密码时必填" />
             </div>
             <div class="form-field">
               <label>新密码</label>
@@ -598,21 +597,6 @@ function fmtTime(ts) {
   return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
-// ── 参考来源 Tooltip ──────────────────────────────────
-const sourceTooltip = reactive({ visible: false, x: 0, y: 0, data: {} })
-
-function showSourceTooltip(event, source) {
-  const rect = event.target.getBoundingClientRect()
-  sourceTooltip.x = rect.left
-  sourceTooltip.y = rect.bottom + 8
-  sourceTooltip.data = source
-  sourceTooltip.visible = true
-}
-
-function hideSourceTooltip() {
-  sourceTooltip.visible = false
-}
-
 // ── 面板 ──────────────────────────────────────────────
 const showAssistantPanel = ref(false)
 const showProfilePanel = ref(false)
@@ -620,25 +604,112 @@ const showProfilePanel = ref(false)
 // ── 个人信息 ──────────────────────────────────────────
 const profileForm = reactive({
   username: userInfo.username || '',
-  email: userInfo.email || '',
+  oldPassword: '',
   newPassword: '',
 })
 const profileMsg = ref('')
 const profileMsgType = ref('ok')
+const avatarInputRef = ref(null)
+const pendingAvatarFile = ref(null)
+const pendingAvatarPreview = ref('')
+
+function triggerAvatarUpload() {
+  if (avatarInputRef.value) avatarInputRef.value.click()
+}
+
+function handleAvatarChange(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+
+  // 仅暂存文件和预览，不立即上传
+  pendingAvatarFile.value = file
+  pendingAvatarPreview.value = URL.createObjectURL(file)
+  profileMsg.value = ''
+
+  // 清空 input 以便再次选择同一文件
+  if (avatarInputRef.value) avatarInputRef.value.value = ''
+}
 
 async function saveProfile() {
   try {
-    const payload = { username: profileForm.username, email: profileForm.email }
-    if (profileForm.newPassword) payload.password = profileForm.newPassword
-    await axios.put('/api/auth/user/info', payload, {
-      headers: { Authorization: `Bearer ${userToken()}` },
-    })
-    Object.assign(userInfo, { username: profileForm.username, email: profileForm.email })
+    let hasChange = false
+
+    // 1. 上传头像（如果有待上传的文件）
+    if (pendingAvatarFile.value) {
+      const formData = new FormData()
+      formData.append('file', pendingAvatarFile.value)
+      const res = await axios.post('/api/qa/auth/user/avatar', formData, {
+        headers: {
+          Authorization: `Bearer ${userToken()}`,
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+      const avatarUrl = res.data?.data?.avatar_url
+      if (avatarUrl) {
+        userInfo.avatar_url = avatarUrl
+        hasChange = true
+      }
+      // 清除待上传状态
+      pendingAvatarFile.value = null
+      pendingAvatarPreview.value = ''
+    }
+
+    // 2. 修改用户名和密码
+    const payload = {}
+    if (profileForm.username && profileForm.username !== userInfo.username) {
+      payload.username = profileForm.username
+    }
+    if (profileForm.newPassword) {
+      if (!profileForm.oldPassword) {
+        profileMsg.value = '修改密码需要输入原密码'; profileMsgType.value = 'err'
+        return
+      }
+      const { hashPassword } = await import('../utils/crypto')
+      payload.old_password = await hashPassword(profileForm.oldPassword)
+      payload.password = await hashPassword(profileForm.newPassword)
+    }
+
+    if (payload.username || payload.password) {
+      await axios.put('/api/qa/auth/user/info', payload, {
+        headers: { Authorization: `Bearer ${userToken()}` },
+      })
+      if (payload.username) {
+        userInfo.username = profileForm.username
+      }
+      hasChange = true
+    }
+
+    if (!hasChange) {
+      profileMsg.value = '没有需要修改的内容'; profileMsgType.value = 'err'
+      return
+    }
+
     localStorage.setItem('user_info', JSON.stringify(userInfo))
     profileMsg.value = '保存成功'; profileMsgType.value = 'ok'
+    profileForm.oldPassword = ''
     profileForm.newPassword = ''
   } catch (e) {
     profileMsg.value = e.response?.data?.message || '保存失败'; profileMsgType.value = 'err'
+  }
+}
+
+// ── 主题切换 ──────────────────────────────────────────
+const isDarkTheme = ref(localStorage.getItem('user_theme') === 'dark')
+
+function toggleTheme() {
+  isDarkTheme.value = !isDarkTheme.value
+  localStorage.setItem('user_theme', isDarkTheme.value ? 'dark' : 'light')
+  applyTheme()
+}
+
+function applyTheme() {
+  const el = document.querySelector('.user-chat-page')
+  if (el) {
+    if (isDarkTheme.value) {
+      el.classList.add('dark-forest')
+    } else {
+      el.classList.remove('dark-forest')
+    }
   }
 }
 
@@ -652,6 +723,8 @@ function handleLogout() {
 // ── 初始化 ────────────────────────────────────────────
 onMounted(async () => {
   if (!userToken()) { router.push('/user/login'); return }
+  await nextTick()
+  applyTheme()
   await loadKBList()
   if (!currentSessionId.value && sessions.value.length === 0) newChat()
 })
@@ -998,12 +1071,41 @@ onMounted(async () => {
 }
 .save-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(82,183,136,0.4); }
 
+.profile-avatar-wrap {
+  position: relative;
+  width: 80px; height: 80px;
+  margin: 0 auto 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  overflow: hidden;
+}
+.profile-avatar-wrap:hover .avatar-overlay { opacity: 1; }
+
+.profile-avatar-img {
+  width: 80px; height: 80px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
 .profile-avatar {
-  width: 72px; height: 72px; border-radius: 50%;
+  width: 80px; height: 80px; border-radius: 50%;
   background: linear-gradient(135deg, #52b788, #2d6a4f);
   color: white; font-size: 28px; font-weight: 700;
   display: flex; align-items: center; justify-content: center;
-  margin: 0 auto 24px;
+}
+
+.avatar-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  border-radius: 50%;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  color: white;
+  font-size: 11px;
 }
 .profile-msg { padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
 .profile-msg.ok { background: rgba(82,183,136,0.1); color: #2d6a4f; }
@@ -1077,4 +1179,123 @@ onMounted(async () => {
 .panel-enter-active .side-panel, .panel-leave-active .side-panel { transition: transform 0.25s ease; }
 .panel-enter-from, .panel-leave-to { opacity: 0; }
 .panel-enter-from .side-panel, .panel-leave-to .side-panel { transform: translateX(100%); }
+
+/* ── 主题切换按钮 ── */
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+.theme-toggle-btn {
+  width: 34px; height: 34px; border: none; border-radius: 50%;
+  background: rgba(168,230,207,0.2);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: #52b788; transition: all 0.2s;
+}
+.theme-toggle-btn:hover { background: rgba(168,230,207,0.4); transform: scale(1.08); }
+
+/* ══════════════════════════════════════════════════════════
+   暗黑森林主题 (dark-forest) — 柔和青绿
+   ══════════════════════════════════════════════════════════ */
+.user-chat-page.dark-forest {
+  background: linear-gradient(160deg, #1a2f2b 0%, #1e3a35 40%, #223f3a 70%, #1a2f2b 100%);
+}
+
+.dark-forest .sidebar {
+  background: rgba(26,47,43,0.96);
+  border-right-color: rgba(100,180,160,0.2);
+}
+.dark-forest .sidebar-brand { border-bottom-color: rgba(100,180,160,0.15); }
+.dark-forest .brand-name { color: #a0e8d2; }
+.dark-forest .collapse-btn { color: #6dcfb5; }
+.dark-forest .new-chat-btn { background: linear-gradient(135deg, #2a7a6a, #1f6055); }
+.dark-forest .new-chat-btn:hover { box-shadow: 0 4px 16px rgba(42,122,106,0.4); }
+.dark-forest .nav-section-title { color: #6dcfb5; }
+.dark-forest .session-item { color: #a0e8d2; }
+.dark-forest .session-item:hover { background: rgba(100,180,160,0.1); }
+.dark-forest .session-item.active { background: rgba(100,180,160,0.18); color: #c8f5e6; }
+.dark-forest .del-btn { color: rgba(160,232,210,0.35); }
+.dark-forest .no-sessions { color: rgba(160,232,210,0.3); }
+.dark-forest .sidebar-footer { border-top-color: rgba(100,180,160,0.15); }
+.dark-forest .footer-btn { color: #a0e8d2; }
+.dark-forest .footer-btn:hover { background: rgba(100,180,160,0.1); }
+.dark-forest .footer-btn.logout { color: #f8a0a0; }
+.dark-forest .sidebar-footer-icons { border-top-color: rgba(100,180,160,0.15); }
+.dark-forest .icon-btn { color: #a0e8d2; }
+
+.dark-forest .chat-topbar {
+  background: rgba(26,47,43,0.92);
+  border-bottom-color: rgba(100,180,160,0.15);
+}
+.dark-forest .assistant-name { color: #e0f7f0; }
+.dark-forest .assistant-kb { color: #6dcfb5; }
+.dark-forest .user-badge { color: #a0e8d2; background: rgba(100,180,160,0.15); }
+.dark-forest .user-topbar-avatar { background: linear-gradient(135deg, #2a7a6a, #1f6055); }
+.dark-forest .theme-toggle-btn { background: rgba(100,180,160,0.15); color: #fcd34d; }
+.dark-forest .theme-toggle-btn:hover { background: rgba(100,180,160,0.25); }
+
+.dark-forest .messages-area { background: transparent; }
+.dark-forest .welcome-screen h2 { color: #e0f7f0; }
+.dark-forest .welcome-screen p { color: #a0e8d2; }
+.dark-forest .welcome-screen strong { color: #c8f5e6; }
+.dark-forest .welcome-avatar { background: rgba(100,180,160,0.15); color: #6dcfb5; }
+.dark-forest .quick-chip {
+  background: rgba(100,180,160,0.1); border-color: rgba(109,207,181,0.3);
+  color: #a0e8d2;
+}
+.dark-forest .quick-chip:hover { background: rgba(100,180,160,0.2); border-color: #6dcfb5; }
+
+.dark-forest .msg-bubble.user {
+  background: linear-gradient(135deg, rgba(42,122,106,0.25), rgba(31,96,85,0.2));
+  border-color: rgba(109,207,181,0.2);
+}
+.dark-forest .msg-bubble.assistant {
+  background: linear-gradient(135deg, rgba(30,58,53,0.85), rgba(26,47,43,0.9));
+  border-color: rgba(100,180,160,0.2);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+}
+.dark-forest .msg-text { color: #e0f7f0; }
+.dark-forest .msg-text :deep(code) { background: rgba(100,180,160,0.15); color: #a0e8d2; }
+.dark-forest .msg-text :deep(strong) { color: #c8f5e6; }
+.dark-forest .msg-time { color: rgba(160,232,210,0.35); }
+.dark-forest .msg-error { color: #f8a0a0; }
+.dark-forest .typing-cursor { background: #6dcfb5; }
+.dark-forest .typing-dots span { background: #6dcfb5; }
+
+.dark-forest .sources-trigger {
+  background: rgba(100,180,160,0.1); border-color: rgba(109,207,181,0.25); color: #a0e8d2;
+}
+.dark-forest .sources-trigger:hover { background: rgba(100,180,160,0.2); border-color: #6dcfb5; }
+.dark-forest .sources-popup {
+  background: #1e3a35; border-color: rgba(100,180,160,0.25);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+}
+.dark-forest .popup-title { color: #e0f7f0; border-bottom-color: rgba(100,180,160,0.2); }
+.dark-forest .popup-chunk { background: rgba(100,180,160,0.08); border-color: rgba(100,180,160,0.15); }
+.dark-forest .popup-chunk-idx { color: #a0e8d2; }
+.dark-forest .popup-chunk-text { color: #c8f5e6; }
+
+.dark-forest .input-wrap {
+  background: rgba(26,47,43,0.9); border-color: rgba(100,180,160,0.25);
+}
+.dark-forest .input-wrap:focus-within { border-color: #6dcfb5; box-shadow: 0 0 0 4px rgba(109,207,181,0.08); }
+.dark-forest .input-wrap textarea { color: #e0f7f0; }
+.dark-forest .input-wrap textarea::placeholder { color: rgba(160,232,210,0.3); }
+.dark-forest .send-btn { background: rgba(100,180,160,0.15); color: rgba(160,232,210,0.4); }
+.dark-forest .send-btn.active { background: linear-gradient(135deg, #2a7a6a, #1f6055); color: white; box-shadow: 0 3px 12px rgba(42,122,106,0.4); }
+
+.dark-forest .think-toggle { background: rgba(100,180,160,0.1); border-color: rgba(109,207,181,0.2); color: #6dcfb5; }
+.dark-forest .think-content { background: rgba(100,180,160,0.08); border-color: rgba(100,180,160,0.15); }
+.dark-forest .think-text { color: #6dcfb5; }
+
+.dark-forest .no-kb-tip { background: rgba(140,120,30,0.12); border-color: rgba(220,190,60,0.25); color: #fcd34d; }
+
+/* 暗色面板 */
+.dark-forest .side-panel { background: #1e3a35; }
+.dark-forest .panel-header { border-bottom-color: rgba(100,180,160,0.2); }
+.dark-forest .panel-header h3 { color: #e0f7f0; }
+.dark-forest .close-btn { color: #6dcfb5; }
+.dark-forest .form-field label { color: #a0e8d2; }
+.dark-forest .panel-input, .dark-forest .panel-select {
+  background: rgba(100,180,160,0.08); border-color: rgba(100,180,160,0.25); color: #e0f7f0;
+}
+.dark-forest .panel-input:focus, .dark-forest .panel-select:focus { border-color: #6dcfb5; background: rgba(100,180,160,0.12); }
+.dark-forest .save-btn { background: linear-gradient(135deg, #2a7a6a, #1f6055); box-shadow: 0 3px 12px rgba(42,122,106,0.35); }
+.dark-forest .profile-msg.ok { background: rgba(100,180,160,0.12); color: #a0e8d2; }
 </style>

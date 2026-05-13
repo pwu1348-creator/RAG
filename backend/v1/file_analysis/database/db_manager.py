@@ -53,7 +53,6 @@ class DatabaseManager:
             return False
 
     def _init_tables(self):
-        # 先创建数据库
         if not self._create_database_if_not_exists():
             return
 
@@ -76,7 +75,6 @@ class DatabaseManager:
 
             logger.info("Database tables initialized")
             
-            # 创建默认管理员账号
             self._init_default_admin()
         except Exception as e:
             logger.error(f"Init tables failed: {e}")
@@ -87,15 +85,12 @@ class DatabaseManager:
         email = config.admin.DEFAULT_EMAIL
         role = config.admin.DEFAULT_ROLE
         
-        # 检查是否已存在管理员
         existing = self.get_admin_by_username(username)
         if existing:
             logger.info(f"Default admin already exists: {username}")
             return
         
         try:
-            # 模拟前端行为：先 SHA-256 哈希密码，再存储
-            # 因为前端登录时会先 SHA-256 加密再发送
             password_sha256 = hashlib.sha256(password.encode()).hexdigest()
             admin_id = self.create_admin(
                 username=username,
@@ -132,7 +127,6 @@ class DatabaseManager:
             hash_bytes = password_hash.encode('utf-8')
             return bcrypt.checkpw(password_bytes, hash_bytes)
         except (ValueError, TypeError):
-            # 兼容旧的 SHA-256 哈希格式（迁移期）
             legacy_hash = hashlib.sha256(password.encode()).hexdigest()
             return legacy_hash == password_hash
 
@@ -140,7 +134,6 @@ class DatabaseManager:
     def generate_id() -> str:
         return str(uuid.uuid4())
 
-    # ==================== Admin Operations ====================
 
     def create_admin(self, username: str, password: str, email: str = None,
                      phone: str = None, real_name: str = None,
@@ -280,7 +273,6 @@ class DatabaseManager:
             logger.error(f"Delete admin failed: {e}")
             return False
 
-    # ==================== User Operations ====================
 
     def create_user(self, username: str, password: str, email: str = None,
                     department: str = None) -> Optional[str]:
@@ -443,7 +435,6 @@ class DatabaseManager:
             logger.error(f"Delete user failed: {e}")
             return False
 
-    # ==================== Admin-User Relations ====================
 
     def record_admin_action(self, admin_id: str, user_id: str,
                            action_type: str, action_detail: Dict = None):
@@ -462,7 +453,6 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Record admin action failed: {e}")
 
-    # ==================== Login Logs ====================
 
     def create_login_log(self, account_type: str, account_id: str,
                         login_ip: str, user_agent: str,
@@ -515,7 +505,6 @@ class DatabaseManager:
             logger.error(f"List login logs failed: {e}")
             raise
 
-    # ==================== Operation Logs ====================
 
     def create_operation_log(self, operator_type: str, operator_id: str,
                             operation_type: str, operation_target: str = None,
@@ -537,7 +526,6 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Create operation log failed: {e}")
 
-    # ==================== Knowledge Base Operations ====================
 
     def create_knowledge_base(self, kb_id: str, index_id: str, name: str,
                               owner_type: str, owner_id: str,
@@ -682,7 +670,6 @@ class DatabaseManager:
             logger.error(f"Increment kb doc count failed: {e}")
             return False
 
-    # ==================== User-KB Relations ====================
 
     def add_user_to_kb(self, user_id: str, kb_id: str, role: str = 'viewer') -> bool:
         sql = """
@@ -794,7 +781,6 @@ class DatabaseManager:
             logger.error(f"Get user kb role failed: {e}")
             return None
 
-    # ==================== System Settings ====================
 
     def get_setting(self, category: str, key: str) -> Optional[Dict[str, Any]]:
         sql = "SELECT * FROM system_settings WHERE category = %s AND setting_key = %s"
@@ -891,7 +877,6 @@ class DatabaseManager:
         for category, key, value, value_type, desc, editable in defaults:
             self.set_setting(category, key, value, value_type, desc, editable)
 
-        # 清理已废弃的设置项
         deprecated_settings = [
             ('general', 'footer_text'),
             ('security', 'password_min_length'),
@@ -915,7 +900,6 @@ class DatabaseManager:
         for category, key in deprecated_settings:
             self.delete_setting(category, key)
 
-        # 同步 .env 系统配置信息到数据库（只读）
         self._sync_env_settings()
 
     def _sync_env_settings(self):
@@ -923,7 +907,6 @@ class DatabaseManager:
         import os
 
         env_settings = [
-            # 模型信息 — 基础配置
             ('model', 'llm_base_url', os.getenv('LLM_BASE_URL', ''), 'string', 'LLM API 地址'),
             ('model', 'llm_model', os.getenv('LLM_MODEL', ''), 'string', 'LLM 模型名称'),
             ('model', 'llm_max_tokens', os.getenv('LLM_MAX_TOKENS', '4096'), 'integer', 'LLM 最大 Token 数'),
@@ -931,17 +914,14 @@ class DatabaseManager:
             ('model', 'embedding_model', os.getenv('EMBEDDING_MODEL', ''), 'string', 'Embedding 模型名称'),
             ('model', 'embedding_dimensions', os.getenv('EMBEDDING_DIMENSIONS', '1024'), 'integer', 'Embedding 向量维度'),
             ('model', 'reranker_model', os.getenv('RERANKER_MODEL', ''), 'string', 'Reranker 模型名称'),
-            # 模型信息 — 严谨模式预设
             ('model', 'strict_temperature', '0.3', 'float', '严谨模式 Temperature'),
             ('model', 'strict_top_p', '0.7', 'float', '严谨模式 Top P'),
             ('model', 'strict_top_k', '20', 'integer', '严谨模式 Top K'),
             ('model', 'strict_frequency_penalty', '0.5', 'float', '严谨模式 频率惩罚'),
-            # 模型信息 — 宽松模式预设
             ('model', 'loose_temperature', '0.6', 'float', '宽松模式 Temperature'),
             ('model', 'loose_top_p', '0.9', 'float', '宽松模式 Top P'),
             ('model', 'loose_top_k', '50', 'integer', '宽松模式 Top K'),
             ('model', 'loose_frequency_penalty', '0.3', 'float', '宽松模式 频率惩罚'),
-            # 检索信息 — 严谨模式预设
             ('retrieval', 'strict_bm25_weight', '0.5', 'float', '严谨模式 BM25 权重'),
             ('retrieval', 'strict_vector_weight', '0.5', 'float', '严谨模式 向量权重'),
             ('retrieval', 'strict_min_score', '0.4', 'float', '严谨模式 最低分数阈值'),
@@ -949,7 +929,6 @@ class DatabaseManager:
             ('retrieval', 'strict_use_rerank', 'true', 'boolean', '严谨模式 启用重排序'),
             ('retrieval', 'strict_use_kg', 'true', 'boolean', '严谨模式 启用知识图谱'),
             ('retrieval', 'strict_kg_weight', '0.3', 'float', '严谨模式 知识图谱权重'),
-            # 检索信息 — 宽松模式预设
             ('retrieval', 'loose_bm25_weight', '0.7', 'float', '宽松模式 BM25 权重'),
             ('retrieval', 'loose_vector_weight', '0.3', 'float', '宽松模式 向量权重'),
             ('retrieval', 'loose_min_score', '0.2', 'float', '宽松模式 最低分数阈值'),
@@ -960,14 +939,12 @@ class DatabaseManager:
         ]
 
         for category, key, value, value_type, desc in env_settings:
-            # 使用 is_editable=False 标记为只读
             self.set_setting(category, key, str(value), value_type, desc, is_editable=False)
 
         logger.info("Environment settings synced to database")
 
         logger.info("Default settings initialized")
 
-    # ==================== API Configs ====================
 
     def create_api_config(self, api_id: str, name: str, api_type: str, provider: str,
                           base_url: str, api_key: str = None, model_name: str = None,
@@ -1098,7 +1075,6 @@ class DatabaseManager:
             logger.error(f"Delete API config failed: {e}")
             return False
 
-    # ==================== Retrieval Settings ====================
 
     def get_retrieval_setting(self, kb_id: str = None) -> Optional[Dict[str, Any]]:
         if kb_id:

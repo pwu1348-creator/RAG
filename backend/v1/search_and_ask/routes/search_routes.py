@@ -1,6 +1,3 @@
-"""
-检索路由 — 纯搜索，不调用 LLM
-"""
 
 from fastapi import APIRouter
 
@@ -14,12 +11,6 @@ search_service = SearchService()
 
 @router.post("/search")
 async def search_endpoint(request: SearchRequest):
-    """
-    检索接口
-
-    流程: query → 混合检索(BM25+向量+RRF) → BGE重排 → 返回结果
-    不调用 LLM，仅返回相关段落。
-    """
     try:
         results = search_service.search(
             query=request.query,

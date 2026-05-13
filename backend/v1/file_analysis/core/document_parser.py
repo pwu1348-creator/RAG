@@ -17,7 +17,6 @@ _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.environ["TEMP"] = os.path.join(_BASE_DIR, "temp")
 os.environ["TMP"] = os.path.join(_BASE_DIR, "temp")
 
-# 动态生成 mineru.json，确保路径在任何机器上都正确
 _models_base = os.path.join(_BASE_DIR, 'models', 'models--opendatalab--PDF-Extract-Kit-1.0')
 _ref_path = os.path.join(_models_base, 'refs', 'main')
 _snapshot = open(_ref_path).read().strip() if os.path.exists(_ref_path) else 'd1336ee3c2975a8b26c4b09ff39dc6b593d34141'
@@ -49,7 +48,6 @@ from mineru.backend.vlm.vlm_analyze import doc_analyze as vlm_doc_analyze
 from mineru.backend.vlm.vlm_middle_json_mkcontent import union_make as vlm_union_make
 from mineru.backend.hybrid.hybrid_analyze import doc_analyze as hybrid_doc_analyze
 
-# MinerU 原生 Office 解析（DOCX / PPTX / XLSX）
 from mineru.backend.office.docx_analyze import office_docx_analyze
 from mineru.backend.office.pptx_analyze import office_pptx_analyze
 from mineru.backend.office.xlsx_analyze import office_xlsx_analyze
@@ -70,9 +68,7 @@ LOCAL_STORAGE_ROOT = r"D:\pengpengRAG\backend\v1\file_analysis\uploads"
 LOCAL_IMAGE_DIR = os.path.join(LOCAL_STORAGE_ROOT, "image-minIO")
 IMAGE_URL_PREFIX = "http://localhost:8000/uploads/image-minIO"
 
-# 原生支持的 Office 格式（MinerU 3.1+ 直接解析，无需 LibreOffice）
 _NATIVE_OFFICE_EXTS = {".docx", ".pptx", ".xlsx"}
-# 仍需 LibreOffice 转 PDF 的格式（旧格式 .doc/.ppt/.xls 及纯文本）
 _LEGACY_OFFICE_EXTS = {".doc", ".ppt", ".xls", ".txt", ".md", ".html"}
 
 
@@ -93,7 +89,7 @@ class DocumentMetadata:
 class ParseResult:
     text: str
     markdown: str
-    middle_content: Any          # dict（MinerU middle_json）
+    middle_content: Any
     metadata: DocumentMetadata
     chunks: List[Dict[str, Any]]
     raw_output: Dict[str, Any]
@@ -168,9 +164,6 @@ def _content_list_to_chunks(
     return chunks
 
 
-
-
-
 def _parse_by_pipeline(file_path: str, temp_image_dir: str) -> tuple:
     logger.info("[Parser-INFO] 使用 pipeline 引擎")
     pdf_bytes = read_fn(file_path)
@@ -178,7 +171,6 @@ def _parse_by_pipeline(file_path: str, temp_image_dir: str) -> tuple:
 
     image_writer = FileBasedDataWriter(temp_image_dir)
 
-    # 使用 streaming API，通过回调获取 middle_json
     result_holder = {}
 
     def on_doc_ready(doc_index, model_list, middle_json, ocr_enable):
@@ -238,7 +230,6 @@ def _parse_by_hybrid(file_path: str, temp_image_dir: str) -> tuple:
 
 
 def _parse_office_native(file_path: str, temp_image_dir: str) -> tuple:
-    """使用 MinerU 3.1+ 原生 Office 解析（DOCX / PPTX / XLSX），无需 LibreOffice 转换。"""
     ext = os.path.splitext(file_path)[1].lower()
     logger.info(f"[Parser-INFO] 使用 MinerU 原生 Office 解析引擎: {ext}")
 
@@ -295,7 +286,6 @@ def _convert_to_pdf_with_libreoffice(file_path: str, out_dir: str) -> str:
     return pdf_path
 
 
-
 class BaseParser(ABC):
     @abstractmethod
     def parse(
@@ -330,19 +320,16 @@ class MinerUParser(BaseParser):
 
         try:
             if ext in _NATIVE_OFFICE_EXTS:
-                # MinerU 3.1+ 原生解析 DOCX/PPTX/XLSX，无需 LibreOffice
                 if progress_callback:
                     progress_callback(30)
                 middle_json, content_list = _parse_office_native(file_path, temp_image_dir)
             elif ext in _LEGACY_OFFICE_EXTS:
-                # 旧格式 .doc/.ppt/.xls 及纯文本仍需 LibreOffice 转 PDF
                 logger.info(f"[Parser-INFO] {ext} 文件先用 LibreOffice 转为 PDF")
                 pdf_path = _convert_to_pdf_with_libreoffice(file_path, temp_dir)
                 if progress_callback:
                     progress_callback(30)
                 middle_json, content_list = _parse_pdf(pdf_path, temp_image_dir)
             else:
-                # PDF 直接解析
                 if progress_callback:
                     progress_callback(30)
                 middle_json, content_list = _parse_pdf(file_path, temp_image_dir)
@@ -364,7 +351,7 @@ class MinerUParser(BaseParser):
 
         return ParseResult(
             text=self._to_plain_text(middle_json),
-            markdown="",          # 不再单独维护 markdown，middle_json 已足够
+            markdown="",
             middle_content=middle_json,
             metadata=metadata,
             chunks=chunks,
@@ -411,17 +398,14 @@ class MinerUParser(BaseParser):
         )
 
     def _to_plain_text(self, middle_json: dict) -> str:
-        """从 middle_json 提取纯文本，兼容 PDF pipeline 和 Office 原生解析两种结构。"""
         lines = []
         for page in middle_json.get("pdf_info", []):
-            # PDF pipeline 结构: preproc_blocks -> lines -> spans
             for block in page.get("preproc_blocks", []):
                 for line in block.get("lines", []):
                     for span in line.get("spans", []):
                         text = span.get("content", "").strip()
                         if text:
                             lines.append(text)
-            # Office 原生解析结构: para_blocks -> lines -> spans
             for block in page.get("para_blocks", []):
                 for line in block.get("lines", []):
                     for span in line.get("spans", []):
@@ -429,7 +413,6 @@ class MinerUParser(BaseParser):
                         if text:
                             lines.append(text)
         return "\n".join(lines)
-
 
 
 class DocumentParser:
@@ -515,7 +498,6 @@ class DocumentParser:
 
         image_count = len(image_info_list)
 
-        # 清理临时目录
         _raw_temp_image_dir = result.raw_output.get('temp_image_dir', '')
         if _raw_temp_image_dir:
             _temp_dir = os.path.dirname(_raw_temp_image_dir)
@@ -542,7 +524,6 @@ class DocumentParser:
                 "image_count":     image_count,
             },
         }
-
 
 
 class DocumentProcessor:
@@ -617,7 +598,6 @@ class DocumentProcessor:
         raw_chunks = parse_result.get("chunks", [])
         doc_name = os.path.splitext(os.path.basename(file_path))[0]
 
-        # 支持通过 options 注入 chunk 合并函数（由 ParserService 提供）
         chunk_merger = (options or {}).get("chunk_merger")
         if callable(chunk_merger):
             raw_chunks = chunk_merger(raw_chunks)

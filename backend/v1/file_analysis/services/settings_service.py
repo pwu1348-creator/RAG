@@ -134,7 +134,6 @@ class SettingsService:
             'results': results
         }
 
-    # ==================== API Configs ====================
 
     def create_api_config(self, admin_id: str, name: str, api_type: str, provider: str,
                           base_url: str, api_key: str = None, model_name: str = None,
@@ -209,7 +208,6 @@ class SettingsService:
     def set_default_api_config(self, admin_id: str, api_id: str) -> Dict[str, Any]:
         return self.update_api_config(admin_id, api_id, is_default=True)
 
-    # ==================== Retrieval Settings ====================
 
     def get_retrieval_settings(self, kb_id: str = None) -> Optional[Dict[str, Any]]:
         settings = self.db.get_retrieval_setting(kb_id)
@@ -249,10 +247,8 @@ class SettingsService:
         return {'success': False, 'message': 'Failed to update retrieval settings'}
 
     def get_system_info(self) -> Dict[str, Any]:
-        """获取所有分类的系统信息（用于前端系统信息展示页面）"""
         all_settings = self.get_all_settings()
 
-        # 只返回通用、模型、检索三个分类
         result = {
             'general': all_settings.get('general', {}),
             'model': all_settings.get('model', {}),

@@ -257,7 +257,6 @@ class AdminService:
             logger.error(f"Sync statistics failed: {e}")
             return {'success': False, 'message': str(e)}
 
-    # ==================== Knowledge Base Management ====================
 
     def create_knowledge_base(self, admin_id: str, name: str, description: str = None,
                               embedding_model: str = None, vector_dimension: int = 1024,
@@ -267,7 +266,6 @@ class AdminService:
         kb_id = self.db.generate_id()
         index_id = f"kb_{kb_id}_{int(datetime.now().timestamp())}"
 
-        # owner_type 优先使用前端传入的值，否则自动推断
         if not owner_type:
             owner_type = 'user' if owner_id else 'admin'
         actual_owner_id = owner_id if owner_id else admin_id
@@ -338,7 +336,6 @@ class AdminService:
 
         return {'success': False, 'message': 'Failed to delete knowledge base'}
 
-    # ==================== User-KB Relations Management ====================
 
     def add_user_to_kb(self, admin_id: str, user_id: str, kb_id: str, role: str = 'viewer') -> Dict[str, Any]:
         user = self.db.get_user_by_id(user_id)

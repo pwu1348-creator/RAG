@@ -16,10 +16,6 @@ from utils.logger import logger
 
 
 def _resolve_tenant_id(knowledge_base_id: str) -> str:
-    """
-    通过 knowledge_base_id 从 MySQL 查询知识库的 owner_id 作为 tenant_id。
-    这是 ChromaDB collection 命名所需的关键标识。
-    """
     try:
         conn = pymysql.connect(
             host=config.mysql.HOST,
@@ -260,11 +256,9 @@ class HybridRetriever:
             self._tenant_id = tenant_id
         self.initialize(knowledge_base_id, tenant_id)
 
-        # BM25
         bm25 = self._bm25_map.get(knowledge_base_id, BM25Retriever())
         bm25_results = bm25.search(query, top_k)
 
-        # 向量检索
         vector_results = []
         try:
             query_emb = self.embedding.encode([query])[0]
@@ -336,12 +330,6 @@ class HybridRetriever:
         w_b: float = 1.0,
         k: int = 60,
     ) -> List[Dict[str, Any]]:
-        """
-        加权 RRF 融合
-
-        w_a / w_b 分别是两路检索（通常 a=BM25, b=Vector）的权重，
-        默认 1:1 等权；修改为 7:3 可让 BM25 占主导。
-        """
         scores: Dict[str, float] = defaultdict(float)
         doc_map: Dict[str, Dict] = {}
 
@@ -395,7 +383,6 @@ class SearchService:
         bm25_weight: float = 1.0,
         vector_weight: float = 1.0,
     ) -> List[Dict[str, Any]]:
-        # 如果未传入 tenant_id，从数据库查询知识库的 owner_id
         if not tenant_id:
             tenant_id = _resolve_tenant_id(knowledge_base_id)
             if not tenant_id:
@@ -407,7 +394,6 @@ class SearchService:
             bm25 = self._hybrid._bm25_map.get(knowledge_base_id, BM25Retriever())
             return bm25.search(query, top_k)
 
-        # 混合检索
         candidates = self._hybrid.search(
             query=query,
             knowledge_base_id=knowledge_base_id,
@@ -421,7 +407,6 @@ class SearchService:
         if not candidates:
             return []
 
-        # Reranker 重排序
         if use_rerank:
             try:
                 candidates = self._reranker.rerank(query, candidates, top_k=top_k)
@@ -431,7 +416,6 @@ class SearchService:
         else:
             candidates = candidates[:top_k]
 
-        # 分数过滤
         if min_score > 0:
             before = len(candidates)
             candidates = [
@@ -441,7 +425,6 @@ class SearchService:
             if before > 0 and not candidates:
                 logger.warning(f"[SearchService] min_score={min_score} 过滤后为空，考虑降低阈值")
 
-        # KG 融合（可选）
         if use_kg and candidates:
             try:
                 from core.kg_retriever import KGRetriever, KGHybridRetriever

@@ -16,16 +16,12 @@ from config import config
 from utils.logger import logger
 
 
-# ============================================================================
-# 数据结构
-# ============================================================================
-
 @dataclass
 class Entity:
     """知识图谱实体"""
     id: str
     name: str
-    entity_type: str  # Person, Organization, Location, Product, Concept, etc.
+    entity_type: str
     properties: Dict[str, Any] = None
     doc_ids: List[str] = None
     
@@ -42,7 +38,7 @@ class Relation:
     id: str
     source_id: str
     target_id: str
-    relation_type: str  # 如 "关联", "属于", "包含", "产生" 等
+    relation_type: str
     confidence: float = 0.8
     properties: Dict[str, Any] = None
     doc_ids: List[str] = None
@@ -53,10 +49,6 @@ class Relation:
         if self.doc_ids is None:
             self.doc_ids = []
 
-
-# ============================================================================
-# Neo4j 后端实现
-# ============================================================================
 
 class Neo4jKG:
     """Neo4j 知识图谱实现"""
@@ -224,10 +216,6 @@ class Neo4jKG:
         tx.run(cypher, {"kb_id": kb_id})
 
 
-# ============================================================================
-# NetworkX 轻量级后端（无需部署 Neo4j）
-# ============================================================================
-
 class NetworkXKG:
     """基于 NetworkX 的本地图存储"""
     
@@ -239,7 +227,6 @@ class NetworkXKG:
             self.persist_dir = config.kg.GRAPH_PERSIST_DIR
             os.makedirs(self.persist_dir, exist_ok=True)
             
-            # 加载已保存的图
             self._load_graph()
             logger.info(f"[NetworkXKG] 图存储已初始化，节点数={self.graph.number_of_nodes()}")
         except ImportError:
@@ -287,7 +274,6 @@ class NetworkXKG:
     def create_relation(self, relation: Relation) -> bool:
         """创建关系边"""
         try:
-            # 确保源和目标节点存在
             if relation.source_id not in self.graph:
                 self.create_entity(Entity(
                     id=relation.source_id,
@@ -344,7 +330,6 @@ class NetworkXKG:
     ) -> Dict[str, Any]:
         """多跳搜索"""
         try:
-            # 找到起点实体
             start_nodes = [
                 n for n in self.graph.nodes()
                 if self.graph.nodes[n].get('name', '') == entity_name
@@ -357,12 +342,10 @@ class NetworkXKG:
             entities_set = {start_node}
             relations = []
             
-            # BFS 多跳扩展
             current_level = {start_node}
             for hop in range(hops):
                 next_level = set()
                 for node in current_level:
-                    # 正向邻居
                     for neighbor in self.graph.successors(node):
                         if neighbor not in entities_set:
                             next_level.add(neighbor)
@@ -373,7 +356,6 @@ class NetworkXKG:
                                 "relation_type": edge_data.get('relation_type', ''),
                                 "confidence": edge_data.get('confidence', 0.8)
                             })
-                    # 反向邻居
                     for neighbor in self.graph.predecessors(node):
                         if neighbor not in entities_set:
                             next_level.add(neighbor)
@@ -423,10 +405,6 @@ class NetworkXKG:
             return False
 
 
-# ============================================================================
-# 工厂类 - 根据配置选择后端
-# ============================================================================
-
 class KnowledgeGraphService:
     """知识图谱服务（选择合适的后端）"""
     
@@ -449,7 +427,7 @@ class KnowledgeGraphService:
             if config.kg.BACKEND == "neo4j":
                 self.backend = Neo4jKG()
                 logger.info("[KnowledgeGraphService] 使用 Neo4j 后端")
-            else:  # networkx
+            else:
                 self.backend = NetworkXKG()
                 logger.info("[KnowledgeGraphService] 使用 NetworkX 后端")
         except Exception as e:

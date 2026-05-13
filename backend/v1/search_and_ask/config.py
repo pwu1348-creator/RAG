@@ -1,22 +1,16 @@
-"""
-Search & Ask 独立配置
-
-完全脱离 file_analysis，避免触发 minerU 依赖。
-"""
 
 import os
 from dataclasses import dataclass, field
 from typing import List
 from pathlib import Path
 
-# 加载统一配置文件 backend/v1/.env（在 Config 实例化之前）
 _env_path = Path(__file__).parent.parent / ".env"
 if _env_path.exists():
     try:
         from dotenv import load_dotenv
         load_dotenv(_env_path, override=False)
     except ImportError:
-        pass  # python-dotenv 未安装时跳过，使用代码默认值
+        pass
 
 
 @dataclass
@@ -24,7 +18,6 @@ class ChromaDBConfig:
     HOST: str = ""
     PORT: int = 8000
     COLLECTION_NAME: str = "document_chunks"
-    # 指向 file_analysis 的 chroma_db，确保两个服务共享同一数据库
     PERSIST_DIRECTORY: str = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "file_analysis", "chroma_db"
@@ -72,7 +65,7 @@ class RerankerConfig:
 @dataclass
 class KnowledgeGraphConfig:
     ENABLED: bool = True
-    BACKEND: str = "networkx"  # neo4j 或 networkx
+    BACKEND: str = "networkx"
     NEO4J_URI: str = "bolt://localhost:7687"
     NEO4J_USER: str = "neo4j"
     NEO4J_PASSWORD: str = "pengpeng123"
@@ -138,12 +131,10 @@ class Config:
         self.llm.TOP_K = int(os.getenv('LLM_TOP_K', self.llm.TOP_K))
         self.llm.FREQUENCY_PENALTY = float(os.getenv('LLM_FREQUENCY_PENALTY', self.llm.FREQUENCY_PENALTY))
 
-        # Reranker 配置
         self.reranker.BASE_URL = os.getenv('RERANKER_BASE_URL', self.reranker.BASE_URL)
         self.reranker.API_KEY = os.getenv('RERANKER_API_KEY', self.reranker.API_KEY)
         self.reranker.MODEL = os.getenv('RERANKER_MODEL', self.reranker.MODEL)
 
-        # Knowledge Graph 配置
         self.kg.ENABLED = os.getenv('KG_ENABLED', 'True').lower() == 'true'
         self.kg.BACKEND = os.getenv('KG_BACKEND', self.kg.BACKEND)
         self.kg.NEO4J_URI = os.getenv('NEO4J_URI', self.kg.NEO4J_URI)
