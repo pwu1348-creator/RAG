@@ -205,7 +205,7 @@
               </select>
             </div>
             <div class="form-field toggle-field">
-              <label>启用重排序</label>
+              <label>启用重排序Reranker模型</label>
               <button class="toggle-btn" :class="{ on: assistantConfig.useRerank }" @click="assistantConfig.useRerank = !assistantConfig.useRerank">
                 <span class="toggle-knob"></span>
               </button>
@@ -752,7 +752,7 @@ onMounted(async () => {
   transition: width 0.3s ease;
   overflow: hidden;
 }
-.sidebar.collapsed { width: 72px; }
+.sidebar.collapsed { width: 72px; overflow: visible; }
 
 .sidebar-brand {
   display: flex;
@@ -761,6 +761,12 @@ onMounted(async () => {
   padding: 18px 16px;
   border-bottom: 1px solid rgba(168,230,207,0.2);
   flex-shrink: 0;
+  overflow: visible;
+}
+.sidebar.collapsed .sidebar-brand {
+  justify-content: center;
+  padding: 18px 8px;
+  gap: 0;
 }
 .brand-icon {
   width: 32px; height: 32px;
