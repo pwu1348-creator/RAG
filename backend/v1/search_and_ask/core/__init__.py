@@ -1,7 +1,7 @@
 """
 核心模块
 
-包含检索、问答、分块的核心业务逻辑。
+包含检索、问答的核心业务逻辑。
 """
 
 from .retriever import (
@@ -10,7 +10,6 @@ from .retriever import (
     BM25Retriever,
     Reranker,
 )
-from .chunker import ParentChildChunker
 from .qa import QuestionAnswering
 
 __all__ = [
@@ -18,6 +17,5 @@ __all__ = [
     "HybridRetriever",
     "BM25Retriever",
     "Reranker",
-    "ParentChildChunker",
     "QuestionAnswering",
 ]

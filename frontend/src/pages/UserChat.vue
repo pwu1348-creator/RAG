@@ -204,16 +204,13 @@
                 <option v-for="kb in kbList" :key="kb.kb_id" :value="kb.kb_id">{{ kb.name }}</option>
               </select>
             </div>
-            <div class="form-field">
-              <label>回答数量 (top_k)</label>
-              <input v-model.number="assistantConfig.topK" type="number" min="1" max="20" class="panel-input" />
-            </div>
             <div class="form-field toggle-field">
               <label>启用重排序</label>
               <button class="toggle-btn" :class="{ on: assistantConfig.useRerank }" @click="assistantConfig.useRerank = !assistantConfig.useRerank">
                 <span class="toggle-knob"></span>
               </button>
             </div>
+            <AnswerModeSelector v-model="assistantConfig.answerMode" />
             <button class="save-btn" @click="saveAssistantConfig">保存设置</button>
           </div>
         </div>
@@ -273,6 +270,7 @@
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { streamAskWithConv, createConversation, listConversations, deleteConversation } from '../api/qa'
+import AnswerModeSelector from '../components/AnswerModeSelector.vue'
 import axios from 'axios'
 
 const router = useRouter()
@@ -292,6 +290,7 @@ const assistantConfig = reactive({
   kbName: '',
   topK: 5,
   useRerank: true,
+  answerMode: 'strict',
   ...JSON.parse(localStorage.getItem(ASSISTANT_KEY) || '{}'),
 })
 
@@ -336,6 +335,7 @@ function saveAssistantConfig() {
     kbName: assistantConfig.kbName,
     topK: assistantConfig.topK,
     useRerank: assistantConfig.useRerank,
+    answerMode: assistantConfig.answerMode,
   }))
   showAssistantPanel.value = false
 }
@@ -477,6 +477,7 @@ async function sendMessage() {
       conversation_id: conversationId,
       top_k: assistantConfig.topK,
       use_rerank: assistantConfig.useRerank,
+      answer_mode: assistantConfig.answerMode,
       signal: ctrl.signal,
     })
     if (!resp.ok) throw new Error(`服务器错误 (${resp.status})`)

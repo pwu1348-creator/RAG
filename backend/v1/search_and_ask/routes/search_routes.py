@@ -17,7 +17,7 @@ async def search_endpoint(request: SearchRequest):
     """
     检索接口
 
-    流程: query → 子块混合检索(BM25+向量+RRF) → BGE重排 → 返回父块上下文
+    流程: query → 混合检索(BM25+向量+RRF) → BGE重排 → 返回结果
     不调用 LLM，仅返回相关段落。
     """
     try:
@@ -28,7 +28,6 @@ async def search_endpoint(request: SearchRequest):
             min_score=request.min_score or 0.3,
             use_hybrid=request.use_hybrid if request.use_hybrid is not None else True,
             use_rerank=request.use_rerank if request.use_rerank is not None else True,
-            fetch_parents=True,
         )
         return {"success": True, "results": results, "total": len(results)}
     except Exception as e:

@@ -17,6 +17,7 @@ from typing import List, Dict, Any, Optional, AsyncGenerator
 
 from config import config
 from core.retriever import SearchService
+from core.answer_modes import get_preset, DEFAULT_MODE
 from utils.logger import logger
 from services.conversation_service import ConversationService
 
@@ -121,6 +122,7 @@ class QuestionAnswering:
         context: str,
         is_write_mode: bool = False,
         chat_history: List[Dict[str, str]] = None,
+        system_suffix: str = "",
     ) -> List[Dict[str, str]]:
         """
         构建 OpenAI messages 列表，并执行上下文安全检查。
@@ -130,8 +132,12 @@ class QuestionAnswering:
         2. 估算总 token
         3. 若超过 CONTEXT_SAFE_LIMIT，触发历史压缩
         4. 压缩后再次估算并记录日志
+
+        system_suffix: 来自 answer_mode preset 的风格约束，拼到 system prompt 末尾。
         """
         system_prompt = _SYSTEM_PROMPT_WRITE if is_write_mode else _SYSTEM_PROMPT_QA
+        if system_suffix:
+            system_prompt = f"{system_prompt}\n\n{system_suffix}"
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
 
         # 加入完整历史（不在此处截断，由后端统一管控）
@@ -174,7 +180,7 @@ class QuestionAnswering:
         results: List[Dict[str, Any]],
         max_chars: int = MAX_CONTEXT_CHARS,
     ) -> str:
-        """从检索结果构建 LLM 上下文，适配父子检索模式的父块输出"""
+        """从检索结果构建 LLM 上下文"""
         if not results:
             return "（无相关检索结果）"
 
@@ -197,15 +203,12 @@ class QuestionAnswering:
             chunk_idx = doc.get("chunk_index", 0)
             page_idx = doc.get("page_idx", 0)
             score = doc.get("score") or doc.get("avg_score") or doc.get("similarity", 0)
-            child_count = doc.get("child_count", 0)
 
             meta_bits = [f"doc: {doc_id}", f"chunk: {chunk_idx}"]
             if page_idx:
                 meta_bits.append(f"page: {page_idx}")
             if score:
                 meta_bits.append(f"score: {score:.3f}")
-            if child_count:
-                meta_bits.append(f"命中子块: {child_count}")
             meta_line = ", ".join(meta_bits)
 
             parts.append(f"[段落 {i}] ({meta_line})\n{content}")
@@ -229,26 +232,33 @@ class QuestionAnswering:
         use_rerank: bool = True,
         use_kg: bool = True,
         kg_weight: float = 0.3,
+        answer_mode: str = DEFAULT_MODE,
     ) -> Dict[str, Any]:
         """标准问答（非流式），返回 {"answer", "citations", "search_results", "timestamp"}"""
         try:
+            preset = get_preset(answer_mode)
+            r = preset["retrieval"]
+            logger.info(f"[QuestionAnswering] answer_mode={answer_mode}")
+
             results = self.search_service.search(
                 query=query,
                 knowledge_base_id=knowledge_base_id,
-                top_k=top_k,
-                min_score=min_score,
-                use_rerank=use_rerank,
-                fetch_parents=True,
-                use_kg=use_kg,
-                kg_weight=kg_weight,
+                top_k=r.get("top_k", top_k),
+                min_score=r.get("min_score", min_score),
+                use_rerank=r.get("use_rerank", use_rerank),
+                use_kg=r.get("use_kg", use_kg),
+                kg_weight=r.get("kg_weight", kg_weight),
+                bm25_weight=r.get("bm25_weight", 1.0),
+                vector_weight=r.get("vector_weight", 1.0),
             )
 
             context = self._build_context(results, max_context_chars)
             messages = self._build_messages_with_context_guard(
-                query, context, is_write_mode, chat_history
+                query, context, is_write_mode, chat_history,
+                system_suffix=preset.get("system_suffix", ""),
             )
 
-            answer, finish_reason = await self._call_llm(messages)
+            answer, finish_reason = await self._call_llm(messages, llm_overrides=preset["llm"])
 
             # 超限截断提示
             if finish_reason == "length":
@@ -288,27 +298,34 @@ class QuestionAnswering:
         use_rerank: bool = True,
         use_kg: bool = True,
         kg_weight: float = 0.3,
+        answer_mode: str = DEFAULT_MODE,
     ) -> AsyncGenerator[str, None]:
         """流式问答，末尾附 RAG_META 元数据"""
         try:
+            preset = get_preset(answer_mode)
+            r = preset["retrieval"]
+            logger.info(f"[QuestionAnswering] stream answer_mode={answer_mode}")
+
             results = self.search_service.search(
                 query=query,
                 knowledge_base_id=knowledge_base_id,
-                top_k=top_k,
-                min_score=min_score,
-                use_rerank=use_rerank,
-                fetch_parents=True,
-                use_kg=use_kg,
-                kg_weight=kg_weight,
+                top_k=r.get("top_k", top_k),
+                min_score=r.get("min_score", min_score),
+                use_rerank=r.get("use_rerank", use_rerank),
+                use_kg=r.get("use_kg", use_kg),
+                kg_weight=r.get("kg_weight", kg_weight),
+                bm25_weight=r.get("bm25_weight", 1.0),
+                vector_weight=r.get("vector_weight", 1.0),
             )
 
             context = self._build_context(results, max_context_chars)
             messages = self._build_messages_with_context_guard(
-                query, context, is_write_mode, chat_history
+                query, context, is_write_mode, chat_history,
+                system_suffix=preset.get("system_suffix", ""),
             )
 
             truncated = False
-            async for chunk, finish_reason in self._call_llm_stream(messages):
+            async for chunk, finish_reason in self._call_llm_stream(messages, llm_overrides=preset["llm"]):
                 yield chunk
                 if finish_reason == "length":
                     truncated = True
@@ -333,26 +350,44 @@ class QuestionAnswering:
     # LLM 调用（使用 AsyncOpenAI）
     # ==================================================================
 
-    def _build_request_body(self, messages: List[Dict[str, str]], stream: bool) -> dict:
-        """构建符合 Gitee AI 规范的请求体"""
+    def _build_request_body(
+        self,
+        messages: List[Dict[str, str]],
+        stream: bool,
+        llm_overrides: Optional[Dict[str, Any]] = None,
+    ) -> dict:
+        """
+        构建符合 Gitee AI 规范的请求体
+
+        llm_overrides 优先级高于 config.llm 默认值；支持键：
+        temperature / top_p / top_k / frequency_penalty / enable_thinking。
+        """
+        o = llm_overrides or {}
         body: dict = {
             "model": config.llm.MODEL,
             "messages": messages,
             "stream": stream,
             "max_tokens": MAX_OUTPUT_TOKENS,
-            # 使用配置文件中的温度值（.env LLM_TEMPERATURE，默认 0.7）
-            "temperature": config.llm.TEMPERATURE,
-            "top_p": config.llm.TOP_P,
+            "temperature": o.get("temperature", config.llm.TEMPERATURE),
+            "top_p": o.get("top_p", config.llm.TOP_P),
             "n": 1,
-            # 开启 Qwen3 思考链，reasoning_content 由前端单独渲染
-            "enable_thinking": True,
+            "enable_thinking": o.get("enable_thinking", True),
         }
-        # frequency_penalty 仅在非零时传入，避免部分模型（如 DeepSeek）因该字段返回 400
-        if config.llm.FREQUENCY_PENALTY != 0:
-            body["frequency_penalty"] = config.llm.FREQUENCY_PENALTY
+        # top_k 通过 body 顶层传入（Gitee OpenAI 兼容层透传给 Qwen）
+        top_k_val = o.get("top_k", config.llm.TOP_K)
+        if top_k_val and top_k_val > 0:
+            body["top_k"] = top_k_val
+        # frequency_penalty 仅在非零时传入，避免部分模型返回 400
+        freq_pen = o.get("frequency_penalty", config.llm.FREQUENCY_PENALTY)
+        if freq_pen and freq_pen != 0:
+            body["frequency_penalty"] = freq_pen
         return body
 
-    async def _call_llm(self, messages: List[Dict[str, str]]) -> tuple[str, str]:
+    async def _call_llm(
+        self,
+        messages: List[Dict[str, str]],
+        llm_overrides: Optional[Dict[str, Any]] = None,
+    ) -> tuple[str, str]:
         """
         调用 LLM（非流式，httpx 直接请求）
         返回 (answer_text, finish_reason)
@@ -363,7 +398,7 @@ class QuestionAnswering:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {config.llm.API_KEY}",
         }
-        body = self._build_request_body(messages, stream=False)
+        body = self._build_request_body(messages, stream=False, llm_overrides=llm_overrides)
         try:
             async with httpx.AsyncClient(timeout=120) as client:
                 resp = await client.post(url, headers=headers, json=body)
@@ -378,7 +413,9 @@ class QuestionAnswering:
             return "抱歉，生成回答时出现错误。", ""
 
     async def _call_llm_stream(
-        self, messages: List[Dict[str, str]]
+        self,
+        messages: List[Dict[str, str]],
+        llm_overrides: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[tuple[str, str], None]:
         """
         调用 LLM（流式，httpx 直接请求 SSE）
@@ -392,7 +429,7 @@ class QuestionAnswering:
             "Authorization": f"Bearer {config.llm.API_KEY}",
             "Accept": "text/event-stream",
         }
-        body = self._build_request_body(messages, stream=True)
+        body = self._build_request_body(messages, stream=True, llm_overrides=llm_overrides)
         try:
             async with httpx.AsyncClient(timeout=120) as client:
                 async with client.stream("POST", url, headers=headers, json=body) as resp:

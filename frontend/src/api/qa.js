@@ -9,7 +9,6 @@
  *   POST /ask/stream      → 问答（SSE 流式）
  *   POST /writechat       → 撰写模式（非流式）
  *   POST /writechat/stream→ 撰写模式（SSE 流式）
- *   POST /index/kb/{id}   → 重索知识库
  */
 
 import axios from 'axios'
@@ -56,13 +55,14 @@ export function searchChunks({ query, knowledge_base_id, top_k = 10, use_rerank 
  *
  * 注意：历史截断已统一由后端 qa.py 管控，此处不再截断。
  */
-export function ask({ query, knowledge_base_id, top_k = 10, use_rerank = true, chat_history = null }) {
+export function ask({ query, knowledge_base_id, top_k = 10, use_rerank = true, chat_history = null, answer_mode = 'strict' }) {
   return qaApi.post('/search/ask', {
     query,
     knowledge_base_id,
     top_k,
     use_rerank,
     chat_history: chat_history ?? null,
+    answer_mode,
   })
 }
 
@@ -90,6 +90,7 @@ export function streamAsk({
   use_rerank = true,
   chat_history = null,
   signal = null,
+  answer_mode = 'strict',
 }) {
   const token = localStorage.getItem('token') || ''
   return fetch('/api/qa/search/ask/stream', {
@@ -105,6 +106,7 @@ export function streamAsk({
       top_k,
       use_rerank,
       chat_history: chat_history ?? null,
+      answer_mode,
     }),
     ...(signal ? { signal } : {}),
   })
@@ -115,8 +117,8 @@ export function streamAsk({
 // ---------------------------------------------------------------------------
 
 /** 撰写模式（非流式） */
-export function writeChat({ query, knowledge_base_id, top_k = 10, use_rerank = true }) {
-  return qaApi.post('/search/writechat', { query, knowledge_base_id, top_k, use_rerank })
+export function writeChat({ query, knowledge_base_id, top_k = 10, use_rerank = true, answer_mode = 'strict' }) {
+  return qaApi.post('/search/writechat', { query, knowledge_base_id, top_k, use_rerank, answer_mode })
 }
 
 /** 撰写模式（流式） */
@@ -125,6 +127,7 @@ export function streamWriteChat({
   knowledge_base_id,
   top_k = 10,
   use_rerank = true,
+  answer_mode = 'strict',
 }) {
   const token = localStorage.getItem('token') || ''
   return fetch('/api/qa/search/writechat/stream', {
@@ -133,7 +136,7 @@ export function streamWriteChat({
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ query, knowledge_base_id, top_k, use_rerank }),
+    body: JSON.stringify({ query, knowledge_base_id, top_k, use_rerank, answer_mode }),
   })
 }
 
@@ -198,6 +201,7 @@ export function streamAskWithConv({
   use_rerank = true,
   chat_history = null,
   signal = null,
+  answer_mode = 'strict',
 }) {
   const token = localStorage.getItem('token') || ''
   return fetch('/api/qa/search/ask/stream', {
@@ -214,23 +218,10 @@ export function streamAskWithConv({
       use_rerank,
       // 兼容旧模式：不传 conversation_id 时使用 chat_history
       chat_history: conversation_id ? null : (chat_history ?? null),
+      answer_mode,
     }),
     ...(signal ? { signal } : {}),
   })
-}
-
-// ---------------------------------------------------------------------------
-// 索引管理
-// ---------------------------------------------------------------------------
-
-/** 重索整个知识库 */
-export function reindexKB(kbId) {
-  return qaApi.post(`/search/index/kb/${kbId}`)
-}
-
-/** 重索单个文档 */
-export function reindexDoc(kbId, docId) {
-  return qaApi.post(`/search/index/doc/${kbId}/${docId}`)
 }
 
 // ---------------------------------------------------------------------------

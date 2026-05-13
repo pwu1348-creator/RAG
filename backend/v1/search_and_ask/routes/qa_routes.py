@@ -121,6 +121,7 @@ async def ask_endpoint(request: ChatRequest):
             use_rerank=request.use_rerank if request.use_rerank is not None else True,
             use_kg=request.use_kg if request.use_kg is not None else True,
             kg_weight=request.kg_weight or 0.3,
+            answer_mode=request.answer_mode or "strict",
         )
     except Exception as e:
         logger.error(f"[Ask API] 问答失败: {e}", exc_info=True)
@@ -149,6 +150,7 @@ class StreamAskRequest(BaseModel):
     use_rerank: Optional[bool] = True
     use_kg: Optional[bool] = True
     kg_weight: Optional[float] = 0.3
+    answer_mode: Optional[str] = "strict"      # "strict" | "loose"
 
 
 @router.post("/ask/stream")
@@ -203,6 +205,7 @@ async def ask_stream_endpoint(request: StreamAskRequest):
             use_rerank=request.use_rerank if request.use_rerank is not None else True,
             use_kg=request.use_kg if request.use_kg is not None else True,
             kg_weight=request.kg_weight or 0.3,
+            answer_mode=request.answer_mode or "strict",
         ):
             yield _sse_encode(chunk)
 
@@ -266,6 +269,7 @@ async def writechat_endpoint(request: ChatRequest):
             use_rerank=request.use_rerank if request.use_rerank is not None else True,
             use_kg=request.use_kg if request.use_kg is not None else True,
             kg_weight=request.kg_weight or 0.3,
+            answer_mode=request.answer_mode or "strict",
         )
     except Exception as e:
         logger.error(f"[WriteChat API] 撰写问答失败: {e}", exc_info=True)
@@ -307,6 +311,7 @@ async def writechat_stream_endpoint(request: StreamAskRequest):
             use_rerank=request.use_rerank if request.use_rerank is not None else True,
             use_kg=request.use_kg if request.use_kg is not None else True,
             kg_weight=request.kg_weight or 0.3,
+            answer_mode=request.answer_mode or "strict",
         ):
             yield _sse_encode(chunk)
             if request.conversation_id:

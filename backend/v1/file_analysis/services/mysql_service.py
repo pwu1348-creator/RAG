@@ -613,7 +613,7 @@ class MySQLService:
             conn = self._get_connection()
             with conn.cursor() as cursor:
                 for i, chunk in enumerate(chunks):
-                    chunk_id = f"{kb_id}_{doc_id}_chunk_{i}"
+                    chunk_id = f"{doc_id}_chunk_{i}"
                     content = chunk.get('content', chunk.get('text', ''))
                     bbox = chunk.get('bbox')
                     bbox_str = ','.join(map(str, bbox)) if bbox else None

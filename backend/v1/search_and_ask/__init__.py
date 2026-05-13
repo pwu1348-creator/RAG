@@ -2,9 +2,9 @@
 Search & Ask Service v2.0
 
 目录结构：
-  core/       — 核心业务逻辑（检索、问答、分块）
-  routes/     — API 路由（search / qa / index）
-  services/   — 服务层（文档重索引）
+  core/       — 核心业务逻辑（检索、问答）
+  routes/     — API 路由（search / qa / kg）
+  services/   — 服务层
   models/     — Pydantic 数据模型
   main.py     — FastAPI 入口
 """
@@ -14,10 +14,8 @@ from .core import (
     HybridRetriever,
     BM25Retriever,
     Reranker,
-    ParentChildChunker,
     QuestionAnswering,
 )
-from .services import IndexService
 from .routes import router
 
 __all__ = [
@@ -26,10 +24,7 @@ __all__ = [
     "HybridRetriever",
     "BM25Retriever",
     "Reranker",
-    "ParentChildChunker",
     "QuestionAnswering",
-    # 服务
-    "IndexService",
     # 路由
     "router",
 ]

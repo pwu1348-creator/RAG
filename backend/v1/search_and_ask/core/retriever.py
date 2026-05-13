@@ -221,6 +221,8 @@ class HybridRetriever:
         tenant_id: str = "",
         top_k: int = 20,
         doc_ids: List[str] = None,
+        bm25_weight: float = 1.0,
+        vector_weight: float = 1.0,
     ) -> List[Dict[str, Any]]:
         if tenant_id:
             self._tenant_id = tenant_id
@@ -269,7 +271,10 @@ class HybridRetriever:
         except Exception as e:
             logger.error(f"[HybridRetriever] 向量检索失败: {e}")
 
-        return self._rrf_fuse(bm25_results, vector_results)[:top_k]
+        return self._rrf_fuse(
+            bm25_results, vector_results,
+            w_a=bm25_weight, w_b=vector_weight,
+        )[:top_k]
 
     def token_rerank(self, query: str, candidates: List[Dict[str, Any]], top_k: int = 10) -> List[Dict[str, Any]]:
         if not candidates:
@@ -292,18 +297,30 @@ class HybridRetriever:
         return candidates[:top_k]
 
     @staticmethod
-    def _rrf_fuse(list_a: List[Dict], list_b: List[Dict], k: int = 60) -> List[Dict[str, Any]]:
+    def _rrf_fuse(
+        list_a: List[Dict],
+        list_b: List[Dict],
+        w_a: float = 1.0,
+        w_b: float = 1.0,
+        k: int = 60,
+    ) -> List[Dict[str, Any]]:
+        """
+        加权 RRF 融合
+
+        w_a / w_b 分别是两路检索（通常 a=BM25, b=Vector）的权重，
+        默认 1:1 等权；修改为 7:3 可让 BM25 占主导。
+        """
         scores: Dict[str, float] = defaultdict(float)
         doc_map: Dict[str, Dict] = {}
 
         for i, doc in enumerate(list_a):
             key = doc.get("chunk_id", str(i))
-            scores[key] += 1.0 / (k + i + 1)
+            scores[key] += w_a * 1.0 / (k + i + 1)
             doc_map[key] = doc
 
         for i, doc in enumerate(list_b):
             key = doc.get("chunk_id", str(i))
-            scores[key] += 1.0 / (k + i + 1)
+            scores[key] += w_b * 1.0 / (k + i + 1)
             if key not in doc_map:
                 doc_map[key] = doc
 
@@ -343,6 +360,8 @@ class SearchService:
         use_kg: bool = True,
         kg_weight: float = 0.3,
         doc_ids: List[str] = None,
+        bm25_weight: float = 1.0,
+        vector_weight: float = 1.0,
     ) -> List[Dict[str, Any]]:
         if not use_hybrid:
             self._hybrid.initialize(knowledge_base_id, tenant_id)
@@ -356,6 +375,8 @@ class SearchService:
             tenant_id=tenant_id,
             top_k=top_k * 3,
             doc_ids=doc_ids,
+            bm25_weight=bm25_weight,
+            vector_weight=vector_weight,
         )
 
         if not candidates:

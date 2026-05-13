@@ -30,6 +30,7 @@ class ChatRequest(BaseModel):
     use_rerank: Optional[bool] = True
     use_kg: Optional[bool] = True
     kg_weight: Optional[float] = 0.3
+    answer_mode: Optional[str] = "strict"   # "strict" | "loose"
 
 
 class AskResponse(BaseModel):
