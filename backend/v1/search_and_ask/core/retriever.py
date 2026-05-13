@@ -5,11 +5,43 @@ from typing import List, Dict, Any, Optional
 from collections import defaultdict
 from dataclasses import dataclass
 
+import pymysql
+from pymysql.cursors import DictCursor
+
 from config import config
 from utils.rag_tokenizer import RagTokenizer
 from services.chromadb_service import ChromaDBService
 from services.embedding_service import EmbeddingService
 from utils.logger import logger
+
+
+def _resolve_tenant_id(knowledge_base_id: str) -> str:
+    """
+    通过 knowledge_base_id 从 MySQL 查询知识库的 owner_id 作为 tenant_id。
+    这是 ChromaDB collection 命名所需的关键标识。
+    """
+    try:
+        conn = pymysql.connect(
+            host=config.mysql.HOST,
+            port=config.mysql.PORT,
+            user=config.mysql.USER,
+            password=config.mysql.PASSWORD,
+            database=config.mysql.DATABASE,
+            charset="utf8mb4",
+            cursorclass=DictCursor,
+        )
+        with conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT owner_id FROM knowledge_bases WHERE kb_id = %s LIMIT 1",
+                    (knowledge_base_id,),
+                )
+                row = cursor.fetchone()
+                if row and row.get("owner_id"):
+                    return row["owner_id"]
+    except Exception as e:
+        logger.warning(f"[Retriever] 查询 tenant_id 失败: {e}")
+    return ""
 
 
 class BM25Retriever:
@@ -363,6 +395,13 @@ class SearchService:
         bm25_weight: float = 1.0,
         vector_weight: float = 1.0,
     ) -> List[Dict[str, Any]]:
+        # 如果未传入 tenant_id，从数据库查询知识库的 owner_id
+        if not tenant_id:
+            tenant_id = _resolve_tenant_id(knowledge_base_id)
+            if not tenant_id:
+                logger.error(f"[SearchService] 无法解析 tenant_id, kb_id={knowledge_base_id}")
+                return []
+
         if not use_hybrid:
             self._hybrid.initialize(knowledge_base_id, tenant_id)
             bm25 = self._hybrid._bm25_map.get(knowledge_base_id, BM25Retriever())

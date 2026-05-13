@@ -60,6 +60,12 @@ async def get_all_settings(current_admin: dict = Depends(get_current_admin)):
     return success_response(data=settings)
 
 
+@router.get("/system-info")
+async def get_system_info():
+    info = settings_service.get_system_info()
+    return success_response(data=info)
+
+
 @router.get("/{category}")
 async def get_settings_by_category(category: str, current_admin: dict = Depends(get_current_admin)):
     if not current_admin:
@@ -106,12 +112,6 @@ async def update_settings_batch(
         return success_response(data=result, message="Settings updated")
     else:
         return success_response(data=result, message="Some settings failed to update")
-
-
-@router.get("/system-info")
-async def get_system_info():
-    info = settings_service.get_system_info()
-    return success_response(data=info)
 
 
 # ==================== API Configs ====================

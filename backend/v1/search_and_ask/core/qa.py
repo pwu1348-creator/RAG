@@ -377,10 +377,11 @@ class QuestionAnswering:
         top_k_val = o.get("top_k", config.llm.TOP_K)
         if top_k_val and top_k_val > 0:
             body["top_k"] = top_k_val
-        # frequency_penalty 仅在非零时传入，避免部分模型返回 400
-        freq_pen = o.get("frequency_penalty", config.llm.FREQUENCY_PENALTY)
-        if freq_pen and freq_pen != 0:
-            body["frequency_penalty"] = freq_pen
+        # frequency_penalty：enable_thinking 模式下部分模型不支持，跳过
+        if not body.get("enable_thinking"):
+            freq_pen = o.get("frequency_penalty", config.llm.FREQUENCY_PENALTY)
+            if freq_pen and freq_pen != 0:
+                body["frequency_penalty"] = freq_pen
         return body
 
     async def _call_llm(
@@ -482,22 +483,38 @@ class QuestionAnswering:
     # ==================================================================
 
     def _extract_citations(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """从检索结果提取前 5 条去重引用"""
+        """
+        从检索结果提取前 5 条去重引用。
+        结果已按评分排序（rerank_score > rrf_score > similarity），
+        直接按顺序取前 5 条不重复的 chunk。
+        """
         citations = []
         seen = set()
         for doc in results:
+            chunk_id = doc.get("chunk_id", "")
             doc_id = doc.get("doc_id", "")
-            chunk_idx = doc.get("chunk_index", 0)
-            key = (doc_id, chunk_idx)
+            # 用 chunk_id 去重（每个 chunk 唯一）
+            key = chunk_id or f"{doc_id}_{len(citations)}"
             if key in seen:
                 continue
             seen.add(key)
+
             content = doc.get("content", "")
+            # 取实际存在的评分字段
+            score = (
+                doc.get("rerank_score")
+                or doc.get("rrf_score")
+                or doc.get("similarity")
+                or 0
+            )
             citations.append({
                 "doc_id": doc_id,
-                "chunk_index": chunk_idx,
-                "page_idx": doc.get("page_idx", 0),
-                "content_preview": content[:200] + "…" if len(content) > 200 else content,
-                "score": doc.get("score") or doc.get("avg_score") or 0,
+                "chunk_id": chunk_id,
+                "docnm_kwd": doc.get("docnm_kwd", ""),
+                "page_num_int": doc.get("page_num_int", []),
+                "content_preview": content[:300] + "…" if len(content) > 300 else content,
+                "score": score,
             })
-        return citations[:5]
+            if len(citations) >= 5:
+                break
+        return citations

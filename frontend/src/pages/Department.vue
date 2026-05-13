@@ -55,7 +55,10 @@
           </div>
           <div class="member-list" v-if="selectedDept.memberUsernames && selectedDept.memberUsernames.length > 0">
             <div class="member-item" v-for="uname in selectedDept.memberUsernames" :key="uname">
-              <div class="member-avatar">{{ uname[0].toUpperCase() }}</div>
+              <div class="member-avatar" :style="!getUserAvatarUrl(uname) ? { background: getAvatarColor(uname) } : {}">
+                <img v-if="getUserAvatarUrl(uname)" :src="getUserAvatarUrl(uname)" class="avatar-img" />
+                <span v-else>{{ uname[0].toUpperCase() }}</span>
+              </div>
               <div class="member-name">{{ uname }}</div>
               <button class="icon-btn del" @click="removeMember(uname)" title="移除">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/></svg>
@@ -133,7 +136,10 @@
               :class="{ selected: pendingMembers.includes(u.username), already: (selectedDept?.memberUsernames||[]).includes(u.username) }"
               @click="togglePendingMember(u.username)"
             >
-              <div class="member-avatar sm">{{ u.username[0].toUpperCase() }}</div>
+              <div class="member-avatar sm" :style="!u.avatar_url ? { background: getAvatarColor(u.username) } : {}">
+                <img v-if="u.avatar_url" :src="u.avatar_url" class="avatar-img" />
+                <span v-else>{{ u.username[0].toUpperCase() }}</span>
+              </div>
               <div class="user-pick-info">
                 <div class="user-pick-name">{{ u.username }}</div>
                 <div class="user-pick-sub">{{ u.department || '无部门' }}</div>
@@ -310,6 +316,21 @@ const removeMember = (uname) => {
   saveDepts()
 }
 
+// ── 头像相关 ──────────────────────────────────────────
+const getUserAvatarUrl = (username) => {
+  const user = allUsers.value.find(u => u.username === username)
+  return user?.avatar_url || ''
+}
+
+const getAvatarColor = (username) => {
+  const colors = ['#667eea', '#f56565', '#48bb78', '#ed8936', '#9f7aea', '#38b2ac', '#e53e3e', '#3182ce']
+  let hash = 0
+  for (let i = 0; i < (username || '').length; i++) {
+    hash = username.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  return colors[Math.abs(hash) % colors.length]
+}
+
 // ── 关联知识库展示 ────────────────────────────────────
 const deptKBNames = computed(() => {
   if (!selectedDept.value) return []
@@ -321,7 +342,11 @@ const deptKBNames = computed(() => {
   } catch { return kbIds }
 })
 
-onMounted(loadDepts)
+onMounted(() => {
+  loadDepts()
+  // 预加载用户列表，用于显示成员头像
+  loadAllUsers()
+})
 </script>
 
 <style scoped>
@@ -412,9 +437,10 @@ onMounted(loadDepts)
   width: 36px; height: 36px; border-radius: 50%;
   background: linear-gradient(135deg, var(--primary), var(--primary-dark, #0d9488));
   color: white; display: flex; align-items: center; justify-content: center;
-  font-size: 14px; font-weight: 600; flex-shrink: 0;
+  font-size: 14px; font-weight: 600; flex-shrink: 0; overflow: hidden;
 }
 .member-avatar.sm { width: 32px; height: 32px; font-size: 13px; }
+.avatar-img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 .member-name { flex: 1; font-size: 14px; color: var(--gray-700); font-weight: 500; }
 
 /* 知识库标签 */

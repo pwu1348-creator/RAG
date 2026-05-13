@@ -2,18 +2,116 @@ import os
 import json
 import threading
 from datetime import datetime
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Callable
 from concurrent.futures import ThreadPoolExecutor
 
 from config import config
 from models.task import ParseTask, TaskStatus
 from models.document import DocumentMetadata
 from utils.logger import logger
+from utils.rag_tokenizer import RagTokenizer
 from services.minio_service import MinIOService
 from services.mysql_service import MySQLService
 from services.chromadb_service import ChromaDBService
 from services.embedding_service import EmbeddingService
 from core.document_parser import DocumentParser, DocumentProcessor
+
+
+# ─── Token 合并工具函数 ───────────────────────────────────────────────────────
+_tokenizer = RagTokenizer()
+
+
+def _tokenize_for_count(text: str) -> str:
+    """使用 RagTokenizer 分词，返回空格分隔的 token 字符串。"""
+    try:
+        return _tokenizer.tokenize(text)
+    except Exception:
+        return text
+
+
+def count_tokens(text: str) -> int:
+    """估算文本 token 数量。"""
+    tks = _tokenize_for_count(text)
+    return len(tks.split()) if tks else 0
+
+
+def merge_chunks_by_token(
+    chunks: List[Dict[str, Any]],
+    chunk_token_num: int = 512,
+) -> List[Dict[str, Any]]:
+    """
+    基于 token 数量的朴素合并。
+
+    遍历 chunks，将连续的小段落合并到一起，直到累计 token 数超过
+    chunk_token_num 阈值时新建下一个 chunk。
+    - 表格类型（table）不参与合并，独立保留。
+    - 单个段落本身超过阈值时也独立保留，不做拆分。
+    - 合并后重新生成 content_ltks / content_sm_ltks。
+    """
+    if not chunks or chunk_token_num <= 0:
+        return chunks
+
+    merged: List[Dict[str, Any]] = []
+    buffer_contents: List[str] = []
+    buffer_token_count = 0
+    buffer_meta: Optional[Dict[str, Any]] = None
+
+    def _flush():
+        nonlocal buffer_contents, buffer_token_count, buffer_meta
+        if not buffer_contents or not buffer_meta:
+            return
+        merged_content = "\n".join(buffer_contents)
+        merged_tks = _tokenize_for_count(merged_content)
+        merged.append({
+            **buffer_meta,
+            "content":         merged_content,
+            "content_ltks":    merged_tks,
+            "content_sm_ltks": merged_tks,
+        })
+        buffer_contents = []
+        buffer_token_count = 0
+        buffer_meta = None
+
+    for chunk in chunks:
+        # 表格独立保留，不参与合并
+        if chunk.get("type") == "table":
+            _flush()
+            merged.append(chunk)
+            continue
+
+        content = chunk.get("content", "")
+        token_count = count_tokens(content)
+
+        # 单个段落已超阈值，独立保留
+        if token_count >= chunk_token_num:
+            _flush()
+            merged.append(chunk)
+            continue
+
+        # 累加后超阈值，先 flush 再开新 buffer
+        if buffer_token_count + token_count > chunk_token_num and buffer_contents:
+            _flush()
+
+        # 加入 buffer
+        buffer_contents.append(content)
+        buffer_token_count += token_count
+        if buffer_meta is None:
+            buffer_meta = {
+                "title_tks":    chunk.get("title_tks", ""),
+                "title_sm_tks": chunk.get("title_sm_tks", ""),
+                "type":         chunk.get("type", "text"),
+                "page_idx":     chunk.get("page_idx", 0),
+                "bbox":         chunk.get("bbox", [0, 0, 0, 0]),
+                "img_id":       chunk.get("img_id", ""),
+            }
+
+    _flush()
+
+    logger.info(
+        f"[ParserService] token 合并: {len(chunks)} 个原始块 → {len(merged)} 个合并块 "
+        f"(阈值={chunk_token_num} tokens)"
+    )
+    return merged
 
 
 class ParserService:
@@ -109,7 +207,11 @@ class ParserService:
                     logger.info(f"Using existing document: {file_id}")
             
             task.progress = 30
-            
+
+            # 注入 token 合并函数，默认阈值 512
+            chunk_token_num = task.options.get("chunk_token_num", 512)
+            task.options["chunk_merger"] = lambda chunks: merge_chunks_by_token(chunks, chunk_token_num)
+
             parse_result = self.document_processor.process_document(
                 file_path=task.file_path,
                 file_id=file_id,

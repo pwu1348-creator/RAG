@@ -33,6 +33,8 @@ class UpdateKBRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     status: Optional[str] = None
+    owner_type: Optional[str] = None
+    owner_id: Optional[str] = None
 
 
 class AddUserToKBRequest(BaseModel):

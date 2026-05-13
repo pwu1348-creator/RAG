@@ -65,9 +65,9 @@
                           <path d="M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5M12,17C9.33,17 7,14.67 7,12C7,9.33 9.33,7 12,7C14.67,7 17,9.33 17,12C17,14.67 14.67,17 12,17M12,9C10.34,9 9,10.34 9,12C9,13.66 10.34,15 12,15C13.66,15 15,13.66 15,12C15,10.34 13.66,9 12,9Z"/>
                         </svg>
                       </button>
-                      <button class="action-btn dept" @click="openLinkDeptModal(kb)" title="关联部门">
+                      <button class="action-btn dept" @click="openLinkOwnerModal(kb)" title="关联">
                         <svg viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M17,15H7V13H17M17,11H7V9H17M19,3H14.82C14.4,1.84 13.3,1 12,1C10.7,1 9.6,1.84 9.18,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M12,3A1,1 0 0,1 13,4A1,1 0 0,1 12,5A1,1 0 0,1 11,4A1,1 0 0,1 12,3M19,19H5V5H19V19Z"/>
+                          <path d="M10,4A4,4 0 0,1 14,8A4,4 0 0,1 10,12A4,4 0 0,1 6,8A4,4 0 0,1 10,4M17,12C17.87,12 18.66,12.33 19.24,12.86L21,11.1V16H16.1L18.22,13.89C17.89,13.64 17.46,13.5 17,13.5A2.5,2.5 0 0,0 14.5,16A2.5,2.5 0 0,0 17,18.5C17.71,18.5 18.32,18.16 18.75,17.65L20.06,18.96C19.27,19.9 18.21,20.5 17,20.5A4.5,4.5 0 0,1 12.5,16A4.5,4.5 0 0,1 17,11.5M10,14C5.58,14 2,15.79 2,18V20H11.5A6.5,6.5 0 0,1 11.5,14H10Z"/>
                         </svg>
                       </button>
                       <button class="action-btn delete" @click="handleDeleteKB(kb.id)" title="删除">
@@ -302,44 +302,39 @@
       </Transition>
     </Teleport>
 
-    <!-- 关联部门弹窗 -->
+    <!-- 关联所有者弹窗 -->
     <Teleport to="body">
       <div v-if="showLinkDeptModal" class="modal-overlay" @click.self="showLinkDeptModal = false">
         <Transition name="modal-slide">
           <div class="modal-content" v-if="showLinkDeptModal">
             <div class="modal-header">
-              <h3>关联部门 - {{ linkDeptKB?.name }}</h3>
+              <h3>关联 - {{ linkDeptKB?.name }}</h3>
               <button class="close-btn" @click="showLinkDeptModal = false">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/></svg>
               </button>
             </div>
             <div class="modal-body">
-              <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px;">勾选后，该部门下所有成员可在用户界面使用此知识库进行问答。</p>
-              <div v-if="allDepartments.length > 0">
-                <div
-                  v-for="dept in allDepartments" :key="dept.id"
-                  class="dept-check-item"
-                  @click="toggleLinkDept(dept.id)"
-                >
-                  <div class="dept-check-icon">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17,15H7V13H17M17,11H7V9H17M19,3H14.82C14.4,1.84 13.3,1 12,1C10.7,1 9.6,1.84 9.18,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M12,3A1,1 0 0,1 13,4A1,1 0 0,1 12,5A1,1 0 0,1 11,4A1,1 0 0,1 12,3M19,19H5V5H19V19Z"/></svg>
-                  </div>
-                  <div class="dept-check-info">
-                    <div class="dept-check-name">{{ dept.name }}</div>
-                    <div class="dept-check-count">{{ (dept.memberUsernames||[]).length }} 人</div>
-                  </div>
-                  <div class="dept-check-box" :class="{ checked: linkDeptSelected.includes(dept.id) }">
-                    <svg v-if="linkDeptSelected.includes(dept.id)" viewBox="0 0 24 24" fill="currentColor"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg>
-                  </div>
-                </div>
-              </div>
-              <div v-else style="text-align:center;padding:24px;color:var(--gray-400);font-size:13px;">
-                暂无部门，请先在「部门管理」中创建部门
+              <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px;">选择一个用户或部门作为此知识库的所有者。关联部门后，该部门下所有成员可在用户界面使用此知识库。</p>
+              <div class="form-group">
+                <label>选择所有者</label>
+                <select v-model="linkOwnerSelection" class="owner-select">
+                  <option value="">-- 不设置所有者 --</option>
+                  <optgroup label="用户" v-if="ownerUsers.length > 0">
+                    <option v-for="u in ownerUsers" :key="u.user_id" :value="'user:' + u.user_id">
+                      {{ u.username }}{{ u.real_name ? ' (' + u.real_name + ')' : '' }}
+                    </option>
+                  </optgroup>
+                  <optgroup label="部门" v-if="allDepartments.length > 0">
+                    <option v-for="dept in allDepartments" :key="dept.id" :value="'department:' + dept.id">
+                      {{ dept.name }}（{{ (dept.memberUsernames || []).length }} 人）
+                    </option>
+                  </optgroup>
+                </select>
               </div>
             </div>
             <div class="modal-footer">
               <button class="btn btn-secondary" @click="showLinkDeptModal = false">取消</button>
-              <button class="btn btn-primary" @click="confirmLinkDept">保存关联</button>
+              <button class="btn btn-primary" @click="confirmLinkOwner">保存关联</button>
             </div>
           </div>
         </Transition>
@@ -497,9 +492,11 @@ const handleCreateKB = async () => {
       name: newKB.value.name,
       description: newKB.value.description
     }
-    if (newKB.value.owner_id) {
-      params.owner_id = newKB.value.owner_id
-      params.owner_type = newKB.value.owner_type
+    // 直接从 ownerSelection 解析，避免 @change 未触发的问题
+    if (ownerSelection.value) {
+      const [type, id] = ownerSelection.value.split(':')
+      params.owner_id = id
+      params.owner_type = type
     }
     await knowledgeApi.create(params)
     showNotification('知识库创建成功', 'success')
@@ -597,17 +594,26 @@ const formatOwner = (kb) => {
     try {
       const raw = localStorage.getItem('rag_departments')
       const depts = raw ? JSON.parse(raw) : []
-      const dept = depts.find(d => d.id === kb.ownerId)
+      const dept = depts.find(d => String(d.id) === String(kb.ownerId))
       if (dept) return `部门: ${dept.name}`
     } catch {}
     return `部门: ${kb.ownerId}`
   }
   if (kb.ownerType === 'user') {
     // 尝试从已加载的用户列表中查找
-    const user = ownerUsers.value.find(u => u.user_id === kb.ownerId)
+    const user = ownerUsers.value.find(u => String(u.user_id) === String(kb.ownerId))
     if (user) return `用户: ${user.username}`
     return `用户: ${kb.ownerId}`
   }
+  // ownerType 为空但 ownerId 存在时，尝试匹配部门或用户
+  try {
+    const raw = localStorage.getItem('rag_departments')
+    const depts = raw ? JSON.parse(raw) : []
+    const dept = depts.find(d => String(d.id) === String(kb.ownerId))
+    if (dept) return `部门: ${dept.name}`
+  } catch {}
+  const user = ownerUsers.value.find(u => String(u.user_id) === String(kb.ownerId))
+  if (user) return `用户: ${user.username}`
   return kb.ownerId || '-'
 }
 
@@ -732,11 +738,12 @@ const handleBatchParse = async () => {
 }
 
 
-// ── 关联部门 ──────────────────────────────────────────
+// ── 关联所有者 ──────────────────────────────────────────
 const showLinkDeptModal = ref(false)
 const linkDeptKB = ref(null)
 const linkDeptSelected = ref([])
 const allDepartments = ref([])
+const linkOwnerSelection = ref('')
 
 const loadDepartments = () => {
   try {
@@ -745,30 +752,46 @@ const loadDepartments = () => {
   } catch { allDepartments.value = [] }
 }
 
-const openLinkDeptModal = (kb) => {
+const openLinkOwnerModal = (kb) => {
   linkDeptKB.value = kb
   loadDepartments()
-  // 读取当前已关联的部门
-  linkDeptSelected.value = allDepartments.value
-    .filter(d => (d.kbIds || []).includes(kb.id))
-    .map(d => d.id)
+  loadOwnerOptions()
+  // 回显当前所有者
+  if (kb.ownerType && kb.ownerId) {
+    linkOwnerSelection.value = `${kb.ownerType}:${kb.ownerId}`
+  } else {
+    linkOwnerSelection.value = ''
+  }
   showLinkDeptModal.value = true
 }
 
-const toggleLinkDept = (deptId) => {
-  const idx = linkDeptSelected.value.indexOf(deptId)
-  if (idx === -1) linkDeptSelected.value.push(deptId)
-  else linkDeptSelected.value.splice(idx, 1)
-}
-
-const confirmLinkDept = () => {
+const confirmLinkOwner = async () => {
   const kbId = linkDeptKB.value?.id
   const kbName = linkDeptKB.value?.name
   if (!kbId) return
-  // 更新每个部门的 kbIds
+
+  let ownerType = ''
+  let ownerId = ''
+  if (linkOwnerSelection.value) {
+    const [type, id] = linkOwnerSelection.value.split(':')
+    ownerType = type
+    ownerId = id
+  }
+
+  // 调用后端更新所有者
+  try {
+    await knowledgeApi.update(kbId, { owner_type: ownerType || null, owner_id: ownerId || null })
+  } catch (err) {
+    console.error('Failed to update KB owner:', err)
+    showNotification('关联保存失败', 'error')
+    return
+  }
+
+  // 如果关联的是部门，同步更新 localStorage 中的 dept.kbIds
+  loadDepartments()
   for (const dept of allDepartments.value) {
     const hasKb = (dept.kbIds || []).includes(kbId)
-    const shouldHave = linkDeptSelected.value.includes(dept.id)
+    const shouldHave = (ownerType === 'department' && String(dept.id) === String(ownerId))
     if (shouldHave && !hasKb) {
       if (!dept.kbIds) dept.kbIds = []
       dept.kbIds.push(kbId)
@@ -783,8 +806,10 @@ const confirmLinkDept = () => {
     kbMap[kbId] = kbName
     localStorage.setItem('rag_kb_names', JSON.stringify(kbMap))
   } catch {}
-  showNotification('部门关联已保存', 'success')
+
+  showNotification('关联已保存', 'success')
   showLinkDeptModal.value = false
+  await loadKnowledgeBases()
 }
 
 onMounted(() => {

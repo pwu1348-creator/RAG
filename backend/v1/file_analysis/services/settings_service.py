@@ -249,13 +249,16 @@ class SettingsService:
         return {'success': False, 'message': 'Failed to update retrieval settings'}
 
     def get_system_info(self) -> Dict[str, Any]:
-        return {
-            'system_name': self.get_setting('general', 'system_name'),
-            'theme': self.get_setting('general', 'theme'),
-            'language': self.get_setting('general', 'language'),
-            'footer_text': self.get_setting('general', 'footer_text'),
-            'logo': self.get_setting('general', 'system_logo')
+        """获取所有分类的系统信息（用于前端系统信息展示页面）"""
+        all_settings = self.get_all_settings()
+
+        # 只返回通用、模型、检索三个分类
+        result = {
+            'general': all_settings.get('general', {}),
+            'model': all_settings.get('model', {}),
+            'retrieval': all_settings.get('retrieval', {}),
         }
+        return result
 
 
 settings_service = SettingsService()

@@ -77,11 +77,6 @@
             class="message-row"
             :class="msg.role"
           >
-            <!-- 头像 -->
-            <div class="msg-avatar">
-              <div v-if="msg.role === 'user'" class="avatar user-avatar-icon">我</div>
-              <div v-else class="avatar bot-avatar-icon">AI助手</div>
-            </div>
 
             <!-- 气泡区域 -->
             <div class="msg-bubble-wrap">
@@ -810,29 +805,14 @@ onUnmounted(() => {
 
 .message-row.user { flex-direction: row-reverse; }
 
-.msg-avatar { flex-shrink: 0; }
-
-.avatar {
-  width: 38px; height: 38px;
-  border-radius: var(--radius-full);
+/* 角色标识（助手消息左侧小图标） */
+.msg-role-indicator {
+  flex-shrink: 0;
+  width: 22px; height: 22px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 600;
-}
-
-.user-avatar-icon {
-  background: linear-gradient(135deg, var(--primary), var(--secondary));
-  color: white;
-}
-
-.bot-avatar-icon {
-  background: linear-gradient(135deg, #52b788, #2d6a4f);
-  color: white;
-  font-size: 9px;
-  letter-spacing: 0.5px;
-  border-radius: 10px;
-  line-height: 1.2;
-  text-align: center;
-  padding: 2px;
+  color: #52b788;
+  margin-top: 4px;
+  opacity: 0.7;
 }
 
 /* 气泡包裹层（含思考链 + 气泡） */
@@ -845,15 +825,22 @@ onUnmounted(() => {
 
 .msg-bubble {
   width: 100%;
-  padding: 14px 18px;
-  border-radius: var(--radius-lg);
-  background: rgba(255,255,255,0.95);
-  box-shadow: var(--shadow-sm);
-  line-height: 1.7;
+  padding: 16px 20px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(240,250,245,0.9), rgba(255,255,255,0.95));
+  border: 1px solid rgba(168,230,207,0.2);
+  box-shadow: 0 2px 8px rgba(45,106,79,0.04);
+  line-height: 1.8;
 }
 
 .message-row.user .msg-bubble {
-  background: linear-gradient(135deg, var(--primary-light), rgba(136,216,176,0.3));
+  background: linear-gradient(135deg, rgba(168,230,207,0.35), rgba(82,183,136,0.15));
+  border-color: rgba(82,183,136,0.25);
+  border-radius: 18px 18px 4px 18px;
+}
+
+.message-row.assistant .msg-bubble {
+  border-radius: 18px 18px 18px 4px;
 }
 
 .msg-text {

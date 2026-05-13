@@ -631,7 +631,7 @@ class DatabaseManager:
             raise
 
     def update_knowledge_base(self, kb_id: str, **kwargs) -> bool:
-        allowed_fields = ['name', 'description', 'status', 'doc_count', 'total_chunks']
+        allowed_fields = ['name', 'description', 'status', 'doc_count', 'total_chunks', 'owner_type', 'owner_id']
         updates = []
         values = []
 
@@ -731,7 +731,7 @@ class DatabaseManager:
     def list_kb_users(self, kb_id: str, page: int = 1, size: int = 10) -> Dict[str, Any]:
         count_sql = "SELECT COUNT(*) as total FROM user_kb_relations WHERE kb_id = %s"
         query_sql = """
-        SELECT u.user_id, u.username, u.email, u.department, ukr.role, ukr.created_at
+        SELECT u.user_id, u.username, u.email, u.department, u.avatar_url, ukr.role, ukr.created_at
         FROM user_kb_relations ukr
         JOIN users u ON ukr.user_id = u.user_id
         WHERE ukr.kb_id = %s
@@ -880,15 +880,8 @@ class DatabaseManager:
         defaults = [
             ('general', 'system_name', 'RAG知识库系统', 'string', '系统名称', True),
             ('general', 'system_logo', '', 'string', '系统Logo URL', True),
-            ('general', 'theme', 'light', 'string', '主题风格(light/dark)', True),
+            ('general', 'theme', '清新绿色风', 'string', '主题风格', True),
             ('general', 'language', 'zh-CN', 'string', '系统语言', True),
-            ('general', 'footer_text', '© 2024 RAG System', 'string', '页脚文本', True),
-            ('security', 'password_min_length', '8', 'integer', '密码最小长度', True),
-            ('security', 'password_require_uppercase', 'true', 'boolean', '密码需要大写字母', True),
-            ('security', 'password_require_number', 'true', 'boolean', '密码需要数字', True),
-            ('security', 'login_max_attempts', '5', 'integer', '最大登录尝试次数', True),
-            ('security', 'session_timeout', '24', 'integer', '会话超时时间(小时)', True),
-            ('security', 'token_expire_hours', '24', 'integer', 'Token过期时间(小时)', True),
             ('parser', 'max_file_size', '50', 'integer', '最大文件大小(MB)', True),
             ('parser', 'allowed_extensions', '[".pdf", ".docx", ".txt", ".md"]', 'json', '允许的文件类型', True),
             ('parser', 'chunk_size', '1000', 'integer', '文档分块大小', True),
@@ -897,6 +890,80 @@ class DatabaseManager:
 
         for category, key, value, value_type, desc, editable in defaults:
             self.set_setting(category, key, value, value_type, desc, editable)
+
+        # 清理已废弃的设置项
+        deprecated_settings = [
+            ('general', 'footer_text'),
+            ('security', 'password_min_length'),
+            ('security', 'password_require_uppercase'),
+            ('security', 'password_require_number'),
+            ('security', 'login_max_attempts'),
+            ('security', 'session_timeout'),
+            ('security', 'token_expire_hours'),
+            ('security', 'jwt_algorithm'),
+            ('security', 'jwt_expire_hours'),
+            ('storage', 'mysql_host'),
+            ('storage', 'mysql_port'),
+            ('storage', 'mysql_database'),
+            ('storage', 'chromadb_host'),
+            ('storage', 'chromadb_port'),
+            ('storage', 'chromadb_collection'),
+            ('storage', 'storage_type'),
+            ('storage', 'storage_local_path'),
+            ('storage', 'max_file_size_mb'),
+        ]
+        for category, key in deprecated_settings:
+            self.delete_setting(category, key)
+
+        # 同步 .env 系统配置信息到数据库（只读）
+        self._sync_env_settings()
+
+    def _sync_env_settings(self):
+        """将 .env 中的系统配置同步到 system_settings 表（只读信息）"""
+        import os
+
+        env_settings = [
+            # 模型信息 — 基础配置
+            ('model', 'llm_base_url', os.getenv('LLM_BASE_URL', ''), 'string', 'LLM API 地址'),
+            ('model', 'llm_model', os.getenv('LLM_MODEL', ''), 'string', 'LLM 模型名称'),
+            ('model', 'llm_max_tokens', os.getenv('LLM_MAX_TOKENS', '4096'), 'integer', 'LLM 最大 Token 数'),
+            ('model', 'embedding_base_url', os.getenv('EMBEDDING_BASE_URL', ''), 'string', 'Embedding API 地址'),
+            ('model', 'embedding_model', os.getenv('EMBEDDING_MODEL', ''), 'string', 'Embedding 模型名称'),
+            ('model', 'embedding_dimensions', os.getenv('EMBEDDING_DIMENSIONS', '1024'), 'integer', 'Embedding 向量维度'),
+            ('model', 'reranker_model', os.getenv('RERANKER_MODEL', ''), 'string', 'Reranker 模型名称'),
+            # 模型信息 — 严谨模式预设
+            ('model', 'strict_temperature', '0.3', 'float', '严谨模式 Temperature'),
+            ('model', 'strict_top_p', '0.7', 'float', '严谨模式 Top P'),
+            ('model', 'strict_top_k', '20', 'integer', '严谨模式 Top K'),
+            ('model', 'strict_frequency_penalty', '0.5', 'float', '严谨模式 频率惩罚'),
+            # 模型信息 — 宽松模式预设
+            ('model', 'loose_temperature', '0.6', 'float', '宽松模式 Temperature'),
+            ('model', 'loose_top_p', '0.9', 'float', '宽松模式 Top P'),
+            ('model', 'loose_top_k', '50', 'integer', '宽松模式 Top K'),
+            ('model', 'loose_frequency_penalty', '0.3', 'float', '宽松模式 频率惩罚'),
+            # 检索信息 — 严谨模式预设
+            ('retrieval', 'strict_bm25_weight', '0.5', 'float', '严谨模式 BM25 权重'),
+            ('retrieval', 'strict_vector_weight', '0.5', 'float', '严谨模式 向量权重'),
+            ('retrieval', 'strict_min_score', '0.4', 'float', '严谨模式 最低分数阈值'),
+            ('retrieval', 'strict_top_k', '10', 'integer', '严谨模式 返回结果数'),
+            ('retrieval', 'strict_use_rerank', 'true', 'boolean', '严谨模式 启用重排序'),
+            ('retrieval', 'strict_use_kg', 'true', 'boolean', '严谨模式 启用知识图谱'),
+            ('retrieval', 'strict_kg_weight', '0.3', 'float', '严谨模式 知识图谱权重'),
+            # 检索信息 — 宽松模式预设
+            ('retrieval', 'loose_bm25_weight', '0.7', 'float', '宽松模式 BM25 权重'),
+            ('retrieval', 'loose_vector_weight', '0.3', 'float', '宽松模式 向量权重'),
+            ('retrieval', 'loose_min_score', '0.2', 'float', '宽松模式 最低分数阈值'),
+            ('retrieval', 'loose_top_k', '10', 'integer', '宽松模式 返回结果数'),
+            ('retrieval', 'loose_use_rerank', 'true', 'boolean', '宽松模式 启用重排序'),
+            ('retrieval', 'loose_use_kg', 'true', 'boolean', '宽松模式 启用知识图谱'),
+            ('retrieval', 'loose_kg_weight', '0.3', 'float', '宽松模式 知识图谱权重'),
+        ]
+
+        for category, key, value, value_type, desc in env_settings:
+            # 使用 is_editable=False 标记为只读
+            self.set_setting(category, key, str(value), value_type, desc, is_editable=False)
+
+        logger.info("Environment settings synced to database")
 
         logger.info("Default settings initialized")
 

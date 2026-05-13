@@ -169,6 +169,8 @@ def _content_list_to_chunks(
 
 
 
+
+
 def _parse_by_pipeline(file_path: str, temp_image_dir: str) -> tuple:
     logger.info("[Parser-INFO] 使用 pipeline 引擎")
     pdf_bytes = read_fn(file_path)
@@ -614,6 +616,11 @@ class DocumentProcessor:
 
         raw_chunks = parse_result.get("chunks", [])
         doc_name = os.path.splitext(os.path.basename(file_path))[0]
+
+        # 支持通过 options 注入 chunk 合并函数（由 ParserService 提供）
+        chunk_merger = (options or {}).get("chunk_merger")
+        if callable(chunk_merger):
+            raw_chunks = chunk_merger(raw_chunks)
 
         chunks = self.perform_parse(raw_chunks, file_id, kb_id, doc_name)
 

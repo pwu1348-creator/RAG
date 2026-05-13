@@ -101,10 +101,6 @@
 
         <!-- 消息列表 -->
         <div v-for="(msg, i) in currentMessages" :key="i" class="msg-row" :class="msg.role">
-          <div class="msg-avatar-wrap">
-            <div v-if="msg.role === 'user'" class="msg-avatar user-av">{{ (userInfo.username || 'U')[0].toUpperCase() }}</div>
-            <div v-else class="msg-avatar bot-av">AI助手</div>
-          </div>
           <div class="msg-content">
             <!-- 思考链区域（仅 assistant 消息） -->
             <div v-if="msg.role === 'assistant' && (msg.thinking || msg.thinkingDone)" class="think-block">
@@ -313,12 +309,17 @@ async function loadKBList() {
       // 不在任何部门：显示全部（或可改为空列表，视业务需求）
       kbList.value = allKBs
     } else {
-      // 收集所有部门关联的 kbId
+      // 收集所有部门关联的 kbId（通过"关联部门"功能设置的）
       const allowedKbIds = new Set()
       for (const d of userDepts) {
         for (const id of (d.kbIds || [])) allowedKbIds.add(id)
       }
-      kbList.value = allKBs.filter(kb => allowedKbIds.has(kb.kb_id))
+      // 同时包含所有者为当前用户所在部门的知识库
+      const userDeptIds = new Set(userDepts.map(d => d.id))
+      kbList.value = allKBs.filter(kb =>
+        allowedKbIds.has(kb.kb_id) ||
+        (kb.owner_type === 'department' && userDeptIds.has(String(kb.owner_id)))
+      )
     }
   } catch { kbList.value = [] }
 }
@@ -831,9 +832,27 @@ onMounted(async () => {
 .msg-content { display: flex; flex-direction: column; max-width: 72%; }
 .msg-row.user .msg-content { align-items: flex-end; }
 
-.msg-bubble { padding: 12px 16px; border-radius: 16px; line-height: 1.7; }
-.msg-bubble.user { background: linear-gradient(135deg, rgba(168,230,207,0.4), rgba(82,183,136,0.2)); }
-.msg-bubble.bot { background: rgba(255,255,255,0.95); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.msg-role-indicator {
+  flex-shrink: 0;
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  color: #52b788;
+  margin-top: 4px;
+  opacity: 0.7;
+}
+
+.msg-bubble { padding: 16px 20px; border-radius: 18px; line-height: 1.8; }
+.msg-bubble.user {
+  background: linear-gradient(135deg, rgba(168,230,207,0.35), rgba(82,183,136,0.15));
+  border: 1px solid rgba(82,183,136,0.25);
+  border-radius: 18px 18px 4px 18px;
+}
+.msg-bubble.assistant {
+  background: linear-gradient(135deg, rgba(240,250,245,0.9), rgba(255,255,255,0.95));
+  border: 1px solid rgba(168,230,207,0.2);
+  box-shadow: 0 2px 8px rgba(45,106,79,0.04);
+  border-radius: 18px 18px 18px 4px;
+}
 .msg-text { font-size: 14px; color: #1b4332; word-break: break-word; }
 .msg-text :deep(code) { background: rgba(168,230,207,0.2); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
 .msg-text :deep(strong) { font-weight: 600; color: #1b4332; }

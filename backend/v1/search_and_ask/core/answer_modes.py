@@ -20,7 +20,7 @@ STRICT_PRESET: Dict[str, Any] = {
         "temperature": 0.3,
         "top_p": 0.7,
         "top_k": 20,
-        "frequency_penalty": 3.0,
+        "frequency_penalty": 0.5,
         "enable_thinking": True,
     },
     "retrieval": {
