@@ -79,6 +79,13 @@ export const adminApi = {
     return request.delete(`/admin/users/${id}`)
   },
 
+  // 上传用户头像
+  uploadAvatar(userId, file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    return request.post(`/admin/users/${userId}/avatar`, formData)
+  },
+
   // 获取管理员列表
   getAdminList(params) {
     return request.get('/admin/admins', { params })

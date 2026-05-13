@@ -14,6 +14,7 @@ if _env_path.exists():
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from config import config
 from routes import parser_router, auth_router, admin_router, kb_router, settings_router
@@ -50,6 +51,11 @@ def create_app() -> FastAPI:
     app.include_router(admin_router, prefix=f"{config.api.API_PREFIX}/admin")
     app.include_router(kb_router, prefix=f"{config.api.API_PREFIX}/knowledge-bases")
     app.include_router(settings_router, prefix=f"{config.api.API_PREFIX}/settings")
+
+    # 静态文件: 头像、文档图片等
+    _uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+    os.makedirs(_uploads_dir, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
 
     @app.get("/health")
     async def health_check():

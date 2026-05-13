@@ -46,7 +46,6 @@
               </div>
               <select class="setting-select">
                 <option value="zh">简体中文</option>
-                <option value="en">English</option>
               </select>
             </div>
           </div>

@@ -108,7 +108,7 @@ const router = createRouter({
 // 路由守卫
 router.beforeEach((to, from, next) => {
   // 设置页面标题
-  const appName = localStorage.getItem('locale') === 'en' ? 'RAG System' : 'RAG系统'
+  const appName = 'RAG系统'
   document.title = to.meta.title ? `${to.meta.title} - ${appName}` : appName
   
   const isPublicPage = to.meta.public === true

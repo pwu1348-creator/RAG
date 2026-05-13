@@ -715,10 +715,14 @@ const handleRemoveFile = async (docId) => {
 const handleBatchParse = async () => {
   if (selectedFiles.value.length === 0) return
   try {
-    for (const docId of selectedFiles.value) {
-      await knowledgeApi.parseDocument(currentKB.value.id, docId)
+    const res = await knowledgeApi.parseDocuments(currentKB.value.id, selectedFiles.value)
+    const data = res.data || res
+    const { success_count = 0, fail_count = 0 } = data.data || data || {}
+    if (fail_count > 0) {
+      showNotification(`批量解析完成: ${success_count} 成功, ${fail_count} 失败`, 'warning')
+    } else {
+      showNotification(`已启动批量解析 (${success_count} 个文档)`, 'success')
     }
-    showNotification('已启动批量解析', 'success')
     selectedFiles.value = []
     await loadKBFiles(currentKB.value.id)
   } catch (err) {

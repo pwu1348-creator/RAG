@@ -1,5 +1,6 @@
 from typing import Optional
 import os
+import uuid
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
@@ -22,6 +23,10 @@ class CreateKBRequest(BaseModel):
     vector_dimension: int = 1024
     owner_id: Optional[str] = None
     owner_type: Optional[str] = None  # 'user' | 'department' | 'admin'
+
+
+class BatchParseRequest(BaseModel):
+    doc_ids: list[str]
 
 
 class UpdateKBRequest(BaseModel):
@@ -239,9 +244,8 @@ async def parse_kb_document(kb_id: str, doc_id: str):
         return error_response("Document not found", 404)
     
     try:
-        import uuid
         task_id = str(uuid.uuid4())
-        
+
         mysql_service.update_kb_document_status(kb_id, doc_id, 'processing')
         
         kb = admin_service.get_knowledge_base_detail(kb_id)
@@ -266,13 +270,74 @@ async def parse_kb_document(kb_id: str, doc_id: str):
             kb_id=kb_id,
             doc_id=doc_id,
             tenant_id=tenant_id,
+            sequential=True,
         )
-        
+
         return success_response(message="Document parsing started")
     except Exception as e:
         logger.error(f"Parse document error: {e}")
         return error_response(str(e), 500)
 
 
+@router.post("/{kb_id}/documents/parse")
+async def batch_parse_kb_documents(kb_id: str, req: BatchParseRequest):
+    if not req.doc_ids:
+        return error_response("doc_ids is required", 400)
 
+    kb = admin_service.get_knowledge_base_detail(kb_id)
+    tenant_id = kb.get("owner_id", "") if kb else ""
 
+    success_count = 0
+    fail_count = 0
+    errors = []
+
+    for doc_id in req.doc_ids:
+        doc = parser_service.get_document(doc_id)
+        if not doc:
+            errors.append({"doc_id": doc_id, "error": "Document not found"})
+            fail_count += 1
+            continue
+
+        try:
+            task_id = str(uuid.uuid4())
+
+            mysql_service.update_kb_document_status(kb_id, doc_id, 'processing')
+
+            minio_object = doc.get('minio_object')
+            if not minio_object:
+                errors.append({"doc_id": doc_id, "error": "File path not found"})
+                fail_count += 1
+                continue
+
+            file_path = minio_object
+            if not os.path.isabs(file_path) and not file_path.startswith('uploads'):
+                file_path = os.path.join('uploads', minio_object)
+
+            if not os.path.exists(file_path):
+                errors.append({"doc_id": doc_id, "error": f"File not found: {file_path}"})
+                fail_count += 1
+                continue
+
+            parser_service.create_task(
+                task_id=task_id,
+                filename=doc.get('filename', 'unknown'),
+                file_path=file_path,
+                kb_id=kb_id,
+                doc_id=doc_id,
+                tenant_id=tenant_id,
+                sequential=True,
+            )
+            success_count += 1
+        except Exception as e:
+            logger.error(f"Batch parse error for {doc_id}: {e}")
+            errors.append({"doc_id": doc_id, "error": str(e)})
+            fail_count += 1
+
+    return success_response(
+        message=f"Batch parse completed: {success_count} success, {fail_count} failed",
+        data={
+            "success_count": success_count,
+            "fail_count": fail_count,
+            "errors": errors
+        }
+    )

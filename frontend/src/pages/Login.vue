@@ -125,12 +125,10 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
 import FallingLeaves from '../components/FallingLeaves.vue'
 import { useUserStore } from '../stores/user'
 
 const router = useRouter()
-const { t } = useI18n()
 const userStore = useUserStore()
 
 const username = ref('')

@@ -6,8 +6,7 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
-      'vue-i18n': 'vue-i18n/dist/vue-i18n.cjs.js'
+      '@': path.resolve(__dirname, './src')
     }
   },
   server: {
@@ -22,6 +21,11 @@ export default defineConfig({
       },
       // 其余所有 /api/v1 请求 → 文件解析/管理服务 端口 8001
       '/api/v1': {
+        target: 'http://127.0.0.1:8001',
+        changeOrigin: true
+      },
+      // 上传文件（头像、文档图片等）→ 端口 8001
+      '/uploads': {
         target: 'http://127.0.0.1:8001',
         changeOrigin: true
       }

@@ -41,6 +41,7 @@ class ParserService:
         self.chromadb = ChromaDBService()
         self.embedding = EmbeddingService()
         self.executor = ThreadPoolExecutor(max_workers=4)
+        self.sequential_executor = ThreadPoolExecutor(max_workers=1)  # 知识库文档顺序解析
         self._lock = threading.RLock()
     
     def create_task(
@@ -52,6 +53,7 @@ class ParserService:
         kb_id: Optional[str] = None,
         doc_id: Optional[str] = None,
         tenant_id: Optional[str] = None,
+        sequential: bool = False,
     ) -> ParseTask:
         try:
             parse_options = json.loads(options) if isinstance(options, str) else options
@@ -72,15 +74,16 @@ class ParserService:
         
         with self._lock:
             self.tasks[task_id] = task
-        
-        self.executor.submit(
+
+        executor = self.sequential_executor if sequential else self.executor
+        executor.submit(
             self._process_task,
             task,
             kb_id,
             doc_id,
             tenant_id,
         )
-        
+
         return task
     
     def _process_task(

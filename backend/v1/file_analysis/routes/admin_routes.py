@@ -1,5 +1,7 @@
+import os
+import uuid
 from typing import Optional
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, File, Query, UploadFile
 from pydantic import BaseModel
 
 from services.admin_service import admin_service
@@ -148,6 +150,34 @@ async def delete_user(user_id: str):
         return success_response(message="User deleted")
     else:
         return error_response(result["message"], 400)
+
+
+@router.post("/users/{user_id}/avatar")
+async def upload_user_avatar(user_id: str, file: UploadFile = File(...)):
+    if not file.filename:
+        return error_response("Empty file", 400)
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ('.png', '.jpg', '.jpeg', '.gif', '.webp'):
+        return error_response("Only png/jpg/jpeg/gif/webp allowed", 400)
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    avatar_dir = os.path.join(base_dir, "uploads", "avatars")
+    os.makedirs(avatar_dir, exist_ok=True)
+
+    avatar_filename = f"user_{user_id}_{uuid.uuid4().hex[:8]}{ext}"
+    avatar_path = os.path.join(avatar_dir, avatar_filename)
+
+    content = await file.read()
+    with open(avatar_path, "wb") as f:
+        f.write(content)
+
+    avatar_url = f"/uploads/avatars/{avatar_filename}"
+
+    # 更新用户的 avatar_url
+    admin_service.update_user(user_id, avatar_url=avatar_url)
+
+    return success_response(data={"avatar_url": avatar_url}, message="Avatar uploaded")
 
 
 @router.get("/admins")

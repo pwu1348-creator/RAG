@@ -142,7 +142,8 @@ class AuthService:
                 'username': user.get('username'),
                 'role': user.get('role', 'user'),
                 'real_name': user.get('real_name'),
-                'email': user.get('email')
+                'email': user.get('email'),
+                'avatar_url': user.get('avatar_url')
             }
         }
 

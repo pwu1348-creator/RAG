@@ -152,13 +152,32 @@
         </div>
       </div>
     </div>
+
+    <!-- 删除确认弹窗 -->
+    <transition name="modal-fade">
+      <div v-if="showDeleteModal" class="modal-overlay" @click.self="showDeleteModal = false">
+        <div class="modal delete-modal">
+          <div class="modal-icon-danger">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/></svg>
+          </div>
+          <h3>确认删除</h3>
+          <p>确定要删除部门「<strong>{{ deleteTarget?.name }}</strong>」吗？此操作不可撤销。</p>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" @click="showDeleteModal = false">取消</button>
+            <button class="btn btn-danger" @click="confirmDeleteDept">确认删除</button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { adminApi } from '@/api'
+import { useToast } from '@/utils/toast'
 
+const { showToast } = useToast()
 const STORAGE_KEY = 'rag_departments'
 
 // ── 部门数据 ──────────────────────────────────────────
@@ -222,11 +241,23 @@ const saveDept = () => {
   showDeptModal.value = false
 }
 
+const showDeleteModal = ref(false)
+const deleteTarget = ref(null)
+
 const deleteDept = (dept) => {
-  if (!confirm(`确认删除部门「${dept.name}」？`)) return
+  deleteTarget.value = dept
+  showDeleteModal.value = true
+}
+
+const confirmDeleteDept = () => {
+  const dept = deleteTarget.value
+  if (!dept) return
   departments.value = departments.value.filter(d => d.id !== dept.id)
   if (selectedDeptId.value === dept.id) selectedDeptId.value = null
   saveDepts()
+  showDeleteModal.value = false
+  deleteTarget.value = null
+  showToast(`部门「${dept.name}」已删除`, 'success')
 }
 
 // ── 成员管理 ──────────────────────────────────────────
@@ -470,4 +501,37 @@ onMounted(loadDepts)
 .empty-icon { width: 56px; height: 56px; margin: 0 auto 12px; opacity: 0.3; display: block; }
 .empty-state p { font-size: 15px; }
 .empty-tip { padding: 20px; text-align: center; font-size: 13px; color: var(--gray-400); }
+
+/* 删除确认弹窗 */
+.modal-fade-enter-active, .modal-fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+.modal-fade-enter-active .delete-modal, .modal-fade-leave-active .delete-modal {
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+.modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
+.modal-fade-enter-from .delete-modal { transform: translateY(-16px) scale(0.96); opacity: 0; }
+.modal-fade-leave-to .delete-modal { transform: translateY(-12px) scale(0.96); opacity: 0; }
+
+.delete-modal {
+  background: white;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+  text-align: center;
+  padding: 32px;
+}
+.modal-icon-danger {
+  width: 56px; height: 56px; margin: 0 auto 16px;
+  background: #fee2e2; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-icon-danger svg { width: 28px; height: 28px; color: #ef4444; }
+.delete-modal h3 { font-size: 18px; font-weight: 600; color: var(--gray-800); margin-bottom: 8px; }
+.delete-modal p { color: var(--gray-600); font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
+.delete-modal p strong { color: var(--gray-800); }
+.modal-actions { display: flex; gap: 12px; justify-content: center; }
+.btn-danger { background: #ef4444; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.2s; }
+.btn-danger:hover { background: #dc2626; }
 </style>

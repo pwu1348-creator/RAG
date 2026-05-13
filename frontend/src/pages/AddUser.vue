@@ -11,6 +11,29 @@
     </div>
 
     <div class="form-card">
+      <!-- 头像区域 -->
+      <div class="avatar-section">
+        <div class="avatar-preview" @click="triggerAvatarUpload" title="点击上传头像">
+          <img v-if="avatarPreview" :src="avatarPreview" class="avatar-img" />
+          <svg v-else viewBox="0 0 24 24" fill="currentColor" class="avatar-placeholder">
+            <path d="M12,4A4,4 0 0,1 16,8A4,4 0 0,1 12,12A4,4 0 0,1 8,8A4,4 0 0,1 12,4M12,14C16.42,14 20,15.79 20,18V20H4V18C4,15.79 7.58,14 12,14Z"/>
+          </svg>
+          <div class="avatar-overlay">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+              <path d="M4,4H7L9,1H15L17,4H20A2,2 0 0,1 22,6V18A2,2 0 0,1 20,20H4A2,2 0 0,1 2,18V6A2,2 0 0,1 4,4M12,7A5,5 0 0,0 7,12A5,5 0 0,0 12,17A5,5 0 0,0 17,12A5,5 0 0,0 12,7M12,9A3,3 0 0,1 15,12A3,3 0 0,1 12,15A3,3 0 0,1 9,12A3,3 0 0,1 12,9Z"/>
+            </svg>
+          </div>
+        </div>
+        <span class="avatar-hint">点击上传头像</span>
+        <input
+          ref="avatarInput"
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          style="display:none"
+          @change="handleAvatarChange"
+        />
+      </div>
+
       <form @submit.prevent="handleSubmit">
         <div class="form-group">
           <label>账号 <span class="required">*</span></label>
@@ -97,10 +120,28 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminApi } from '@/api'
 import { hashPassword } from '@/utils/crypto'
+import { useToast } from '@/utils/toast'
 
 const router = useRouter()
+const { showToast } = useToast()
 const submitting = ref(false)
 const departments = ref([])
+const avatarInput = ref(null)
+const avatarFile = ref(null)
+const avatarPreview = ref('')
+
+const triggerAvatarUpload = () => {
+  avatarInput.value?.click()
+}
+
+const handleAvatarChange = (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+  avatarFile.value = file
+  const reader = new FileReader()
+  reader.onload = (e) => { avatarPreview.value = e.target.result }
+  reader.readAsDataURL(file)
+}
 
 const form = reactive({
   username: '',
@@ -182,12 +223,12 @@ const handleSubmit = async () => {
   validateEmail()
 
   if (!form.username || !form.password) {
-    alert('请填写账号和密码')
+    showToast('请填写账号和密码', 'warning')
     return
   }
 
   if (hasErrors.value) {
-    alert('请修正表单中的错误')
+    showToast('请修正表单中的错误', 'warning')
     return
   }
 
@@ -195,17 +236,30 @@ const handleSubmit = async () => {
   try {
     // 前端密码加密：SHA-256 哈希后再传输
     const encryptedPassword = await hashPassword(form.password)
-    await adminApi.createUser({
+    const res = await adminApi.createUser({
       username: form.username,
       password: encryptedPassword,
       email: form.email || undefined,
       department: form.department || undefined
     })
-    alert('用户创建成功')
+    // 创建成功后上传头像
+    if (avatarFile.value) {
+      const userId = res.data?.user_id
+      if (userId) {
+        try {
+          await adminApi.uploadAvatar(userId, avatarFile.value)
+        } catch (err) {
+          console.error('Avatar upload failed:', err)
+          const msg = err.response?.data?.message || err.response?.data?.detail || err.message || '未知错误'
+          showToast('头像上传失败: ' + msg, 'error')
+        }
+      }
+    }
+    showToast('用户创建成功', 'success')
     router.push('/users?refresh=' + Date.now())
   } catch (error) {
     console.error('创建用户失败:', error)
-    alert('创建用户失败: ' + (error.message || '未知错误'))
+    showToast('创建用户失败: ' + (error.message || '未知错误'), 'error')
   } finally {
     submitting.value = false
   }
@@ -394,5 +448,67 @@ onMounted(loadDepartments)
 
 .btn-ghost:hover {
   background: var(--gray-200);
+}
+
+/* 头像区域 */
+.avatar-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.avatar-preview {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: var(--gray-100);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+
+.avatar-preview:hover {
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.avatar-preview:hover .avatar-overlay {
+  opacity: 1;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-placeholder {
+  width: 48px;
+  height: 48px;
+  color: var(--gray-400);
+}
+
+.avatar-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.avatar-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--gray-400);
 }
 </style>

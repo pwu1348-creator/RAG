@@ -19,6 +19,10 @@ request.interceptors.request.use(
       config.headers.Authorization = `Bearer ${userStore.token}`
       console.log('Added token to request')
     }
+    // FormData 需要让 axios 自动设置 Content-Type（含 boundary），否则后端无法解析
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type']
+    }
     return config
   },
   (error) => {

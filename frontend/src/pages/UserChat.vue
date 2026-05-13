@@ -67,8 +67,9 @@
       <!-- 顶栏 -->
       <div class="chat-topbar">
         <div class="topbar-left">
-          <div class="assistant-avatar">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A4,4 0 0,0 8,10H10A2,2 0 0,1 12,8A2,2 0 0,1 14,10C14,12 11,11.75 11,15H13C13,12.75 16,12.5 16,10A4,4 0 0,0 12,6Z"/></svg>
+          <div class="user-topbar-avatar">
+            <img v-if="userInfo.avatar_url" :src="userInfo.avatar_url" class="user-topbar-img" />
+            <span v-else>{{ (userInfo.username || 'U')[0].toUpperCase() }}</span>
           </div>
           <div>
             <div class="assistant-name">{{ assistantConfig.name || '智能助手' }}</div>
@@ -771,12 +772,13 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 .topbar-left { display: flex; align-items: center; gap: 12px; }
-.assistant-avatar {
+.user-topbar-avatar {
   width: 38px; height: 38px;
   background: linear-gradient(135deg, #a8e6cf, #52b788);
-  border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white;
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  color: white; font-weight: 600; font-size: 16px; overflow: hidden;
 }
-.assistant-avatar svg { width: 22px; height: 22px; }
+.user-topbar-img { width: 100%; height: 100%; object-fit: cover; }
 .assistant-name { font-size: 15px; font-weight: 600; color: #1b4332; }
 .assistant-kb { font-size: 12px; color: #74c69d; }
 .user-badge { font-size: 13px; font-weight: 500; color: #52b788; background: rgba(168,230,207,0.2); padding: 5px 12px; border-radius: 20px; }

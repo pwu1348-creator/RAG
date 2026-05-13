@@ -364,7 +364,7 @@ class DatabaseManager:
 
         count_sql = f"SELECT COUNT(*) as total FROM users {where_clause}"
         query_sql = f"""
-        SELECT user_id, username, email, department, status, created_at
+        SELECT user_id, username, email, department, status, avatar_url, created_at
         FROM users {where_clause}
         ORDER BY created_at DESC
         LIMIT %s OFFSET %s
@@ -411,7 +411,7 @@ class DatabaseManager:
                 with conn.cursor() as cursor:
                     cursor.execute(sql, values)
                     conn.commit()
-                    return cursor.rowcount > 0
+                    return True
         except Exception as e:
             logger.error(f"Update user failed: {e}")
             return False

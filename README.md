@@ -245,6 +245,7 @@ pm2 delete all              # 删除所有进程
 pm2 save                    # 保存当前进程列表（用于开机自启）
 pm2 startup                 # 生成开机自启命令（按提示执行输出的命令）
 ```
+
 访问地址：
 - 管理员：http://localhost:3000/login
 - 用户：http://localhost:3000/user/login

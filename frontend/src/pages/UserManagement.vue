@@ -61,7 +61,7 @@
             <th class="checkbox-col">
               <input type="checkbox" v-model="selectAll" @change="toggleSelectAll"/>
             </th>
-            <th style="padding-left: 72px;">用户信息</th>
+            <th>用户信息</th>
             <th style="padding-left: 24px;">头像</th>
             <th style="padding-left: 25px;">状态</th>
             <th style="padding-left: 40px;">创建时间</th>
@@ -75,9 +75,6 @@
             </td>
             <td class="user-col">
               <div class="user-cell">
-                <div class="user-avatar" :style="{ background: user.avatarColor }">
-                  {{ user.username.charAt(0) }}
-                </div>
                 <div class="user-info">
                   <span class="user-name">{{ user.username }}</span>
                   <span class="user-email">{{ user.email }}</span>
@@ -85,8 +82,9 @@
               </div>
             </td>
             <td class="avatar-col">
-              <div class="user-avatar" :style="{ background: user.avatarColor || '#667eea' }">
-                {{ user.username?.charAt(0) || '?' }}
+              <div class="user-avatar" :style="user.avatar_url ? {} : { background: user.avatarColor || '#667eea' }">
+                <img v-if="user.avatar_url" :src="user.avatar_url" class="avatar-img" />
+                <span v-else>{{ user.username?.charAt(0) || '?' }}</span>
               </div>
             </td>
             <td>
@@ -571,6 +569,14 @@ onMounted(() => {
   color: white;
   font-weight: 600;
   font-size: 16px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .user-info {
