@@ -1298,4 +1298,31 @@ onMounted(async () => {
 .dark-forest .panel-input:focus, .dark-forest .panel-select:focus { border-color: #6dcfb5; background: rgba(100,180,160,0.12); }
 .dark-forest .save-btn { background: linear-gradient(135deg, #2a7a6a, #1f6055); box-shadow: 0 3px 12px rgba(42,122,106,0.35); }
 .dark-forest .profile-msg.ok { background: rgba(100,180,160,0.12); color: #a0e8d2; }
+
+/* 暗色面板 - 下拉框选项 */
+.dark-forest .panel-select option { background: #1e3a35; color: #e0f7f0; }
+
+/* 暗色面板 - AnswerModeSelector */
+.dark-forest :deep(.answer-mode-selector) .mode-label { color: #a0e8d2; }
+.dark-forest :deep(.mode-btn) {
+  border-color: rgba(100,180,160,0.3);
+  background: rgba(100,180,160,0.08);
+  color: #a0e8d2;
+}
+.dark-forest :deep(.mode-btn:hover) {
+  border-color: #6dcfb5;
+  background: rgba(100,180,160,0.15);
+}
+.dark-forest :deep(.mode-btn.active) {
+  border-color: #6dcfb5;
+  background: linear-gradient(135deg, rgba(100,180,160,0.25), rgba(42,122,106,0.2));
+  color: #e0f7f0;
+  box-shadow: 0 2px 8px rgba(42,122,106,0.3);
+}
+.dark-forest :deep(.mode-desc) { color: #6dcfb5; }
+
+/* 暗色面板 - toggle 按钮 */
+.dark-forest .toggle-btn { background: rgba(100,180,160,0.2); }
+.dark-forest .toggle-btn.on { background: #2a7a6a; }
+.dark-forest .toggle-knob { background: #e0f7f0; }
 </style>

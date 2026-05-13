@@ -61,7 +61,7 @@
             <th class="checkbox-col">
               <input type="checkbox" v-model="selectAll" @change="toggleSelectAll"/>
             </th>
-            <th>用户信息</th>
+            <th>用户账号</th>
             <th style="padding-left: 24px;">头像</th>
             <th style="padding-left: 25px;">状态</th>
             <th style="padding-left: 40px;">创建时间</th>

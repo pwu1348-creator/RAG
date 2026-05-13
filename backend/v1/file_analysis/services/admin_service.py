@@ -303,8 +303,8 @@ class AdminService:
         if not kb:
             return {'success': False, 'message': 'Knowledge base not found'}
 
-        allowed_fields = ['name', 'description', 'status']
-        update_data = {k: v for k, v in kwargs.items() if k in allowed_fields}
+        allowed_fields = ['name', 'description', 'status', 'owner_type', 'owner_id']
+        update_data = {k: v for k, v in kwargs.items() if k in allowed_fields or (k in ('owner_type', 'owner_id') and v is None)}
 
         if not update_data:
             return {'success': False, 'message': 'No valid fields to update'}
