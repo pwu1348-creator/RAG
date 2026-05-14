@@ -1,8 +1,9 @@
 
 import json
+import asyncio
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -121,10 +122,11 @@ class StreamAskRequest(BaseModel):
 async def ask_stream_endpoint(request: StreamAskRequest):
     async def generate():
         if request.conversation_id:
-            history = conv_service.get_messages_for_llm(request.conversation_id)
+            # 智能记忆加载：优先使用缓存摘要 + 近期消息
+            history = qa_service.prepare_history_with_memory(request.conversation_id)
             logger.info(
                 f"[AskStream] conv_id={request.conversation_id} "
-                f"加载历史 {len(history)} 条"
+                f"加载历史 {len(history)} 条（含记忆压缩）"
             )
         else:
             history = request.chat_history or []
@@ -195,6 +197,10 @@ async def ask_stream_endpoint(request: StreamAskRequest):
                 f"[AskStream] conv_id={request.conversation_id} "
                 f"保存 assistant 消息，长度={len(full_answer)}"
             )
+            # 后台异步刷新摘要（不阻塞响应）
+            asyncio.ensure_future(
+                qa_service.refresh_summary(request.conversation_id)
+            )
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -229,7 +235,8 @@ async def writechat_endpoint(request: ChatRequest):
 async def writechat_stream_endpoint(request: StreamAskRequest):
     async def generate():
         if request.conversation_id:
-            history = conv_service.get_messages_for_llm(request.conversation_id)
+            # 智能记忆加载
+            history = qa_service.prepare_history_with_memory(request.conversation_id)
         else:
             history = request.chat_history or []
 
@@ -275,6 +282,10 @@ async def writechat_stream_endpoint(request: StreamAskRequest):
                 role="assistant",
                 content=full_answer.strip(),
                 reference=citations or None,
+            )
+            # 后台异步刷新摘要
+            asyncio.ensure_future(
+                qa_service.refresh_summary(request.conversation_id)
             )
 
     return StreamingResponse(generate(), media_type="text/event-stream")

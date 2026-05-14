@@ -32,12 +32,20 @@ CREATE TABLE IF NOT EXISTS chat_conversations (
     user_id     VARCHAR(64)  NOT NULL    COMMENT '所属用户ID（admin用固定值admin）',
     kb_id       VARCHAR(64)  NOT NULL    COMMENT '关联知识库ID',
     title       VARCHAR(200) NOT NULL DEFAULT '新对话' COMMENT '会话标题',
+    summary     MEDIUMTEXT   NULL        COMMENT 'LLM生成的历史对话摘要',
+    summary_up_to BIGINT     NULL        COMMENT '摘要覆盖到的最后一条消息ID',
     create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_user_id   (user_id),
     INDEX idx_kb_id     (kb_id),
     INDEX idx_update    (update_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='对话会话表';
+"""
+
+_ALTER_ADD_SUMMARY_SQL = """
+ALTER TABLE chat_conversations
+    ADD COLUMN IF NOT EXISTS summary MEDIUMTEXT NULL COMMENT 'LLM生成的历史对话摘要' AFTER title,
+    ADD COLUMN IF NOT EXISTS summary_up_to BIGINT NULL COMMENT '摘要覆盖到的最后一条消息ID' AFTER summary;
 """
 
 _CREATE_MESSAGES_SQL = """
@@ -86,13 +94,21 @@ class ConversationService:
         )
 
     def _ensure_tables(self):
-        """首次启动时自动建表，已存在则跳过"""
+        """首次启动时自动建表，已存在则跳过；同时执行字段迁移"""
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(_CREATE_CONVERSATIONS_SQL)
                     cur.execute(_CREATE_MESSAGES_SQL)
                 conn.commit()
+            # 兼容旧表：尝试添加 summary 字段（已存在则忽略）
+            try:
+                with self._get_conn() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(_ALTER_ADD_SUMMARY_SQL)
+                    conn.commit()
+            except Exception:
+                pass  # 字段已存在或不支持 IF NOT EXISTS，忽略
             logger.info("[ConversationService] 对话表初始化完成")
         except Exception as e:
             logger.error(f"[ConversationService] 建表失败: {e}")
@@ -278,3 +294,106 @@ class ConversationService:
         """
         rows = self.get_messages(conversation_id)
         return [{"role": r["role"], "content": r["content"]} for r in rows]
+
+    # ─── 摘要相关方法 ───────────────────────────────────────────
+
+    def get_summary(self, conversation_id: str) -> Optional[Dict[str, Any]]:
+        """获取会话的缓存摘要及其覆盖范围"""
+        sql = "SELECT summary, summary_up_to FROM chat_conversations WHERE id = %s"
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (conversation_id,))
+                    row = cur.fetchone()
+            if row and row.get("summary"):
+                return {
+                    "summary": row["summary"],
+                    "summary_up_to": row["summary_up_to"],
+                }
+            return None
+        except Exception as e:
+            logger.error(f"[ConversationService] 获取摘要失败: {e}")
+            return None
+
+    def update_summary(
+        self,
+        conversation_id: str,
+        summary: str,
+        summary_up_to: int,
+    ) -> bool:
+        """更新会话的 LLM 摘要缓存"""
+        sql = """
+        UPDATE chat_conversations
+        SET summary = %s, summary_up_to = %s
+        WHERE id = %s
+        """
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (summary, summary_up_to, conversation_id))
+                conn.commit()
+            logger.info(
+                f"[ConversationService] 更新摘要 conv_id={conversation_id} "
+                f"up_to={summary_up_to} len={len(summary)}"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"[ConversationService] 更新摘要失败: {e}")
+            return False
+
+    def get_messages_after(
+        self,
+        conversation_id: str,
+        after_id: int,
+    ) -> List[Dict[str, str]]:
+        """获取指定消息 ID 之后的消息（用于摘要 + 近期消息拼接）"""
+        sql = """
+        SELECT id, role, content
+        FROM chat_messages
+        WHERE conversation_id = %s AND id > %s
+        ORDER BY id ASC
+        """
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (conversation_id, after_id))
+                    rows = cur.fetchall()
+            return [{"role": r["role"], "content": r["content"]} for r in rows]
+        except Exception as e:
+            logger.error(f"[ConversationService] 获取后续消息失败: {e}")
+            return []
+
+    def get_message_count(self, conversation_id: str) -> int:
+        """获取会话消息总数"""
+        sql = "SELECT COUNT(*) AS cnt FROM chat_messages WHERE conversation_id = %s"
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (conversation_id,))
+                    row = cur.fetchone()
+            return row["cnt"] if row else 0
+        except Exception as e:
+            logger.error(f"[ConversationService] 获取消息数失败: {e}")
+            return 0
+
+    def get_messages_before(
+        self,
+        conversation_id: str,
+        before_id: int,
+    ) -> List[Dict[str, str]]:
+        """获取指定消息 ID 之前（含）的消息，用于生成摘要的原始内容"""
+        sql = """
+        SELECT id, role, content
+        FROM chat_messages
+        WHERE conversation_id = %s AND id <= %s
+        ORDER BY id ASC
+        """
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (conversation_id, before_id))
+                    rows = cur.fetchall()
+            return [{"role": r["role"], "content": r["content"]} for r in rows]
+        except Exception as e:
+            logger.error(f"[ConversationService] 获取历史消息失败: {e}")
+            return []

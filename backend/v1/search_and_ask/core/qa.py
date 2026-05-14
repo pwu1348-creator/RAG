@@ -1,5 +1,6 @@
 
 import json
+import asyncio
 from datetime import datetime
 from typing import List, Dict, Any, Optional, AsyncGenerator
 
@@ -17,7 +18,19 @@ CHARS_PER_TOKEN     = 2
 MAX_OUTPUT_TOKENS   = 4096
 MAX_CONTEXT_CHARS   = 32000
 
+# 记忆压缩配置
+SUMMARY_TOKEN_THRESHOLD = 40_000  # 历史 token 超过此值时触发摘要生成（留足空间给检索+输出）
+SUMMARY_MIN_MESSAGES    = 6       # 最少消息数才考虑摘要（避免短对话频繁触发）
+RECENT_KEEP_COUNT       = 6       # 压缩时保留最近 N 条消息原文
+SUMMARY_MAX_CHARS       = 1500    # 摘要最大字符数
+
 TRUNCATION_NOTICE = "······ 由于大模型上下文窗口大小限制，回答已经被大模型截断。"
+
+_SUMMARY_SYSTEM_PROMPT = """你是对话摘要助手。请将以下多轮对话压缩为一段简洁的摘要，保留关键信息：
+- 用户提出的核心问题和意图
+- 助手给出的关键结论和事实
+- 对话中涉及的重要实体、数据、决策
+摘要应控制在500字以内，使用第三人称描述，不要遗漏重要上下文。"""
 
 
 _SYSTEM_PROMPT_DEFAULT = """你是知识库问答助手。请严格遵守以下规则：
@@ -380,6 +393,167 @@ class QuestionAnswering:
             logger.error(f"[QuestionAnswering] LLM 流式调用失败: {e}")
             yield f"抱歉，生成回答时出现错误：{str(e)}", ""
 
+
+    # ─── 记忆压缩升级：LLM 摘要 ─────────────────────────────────
+
+    async def _summarize_with_llm(
+        self,
+        messages_to_summarize: List[Dict[str, str]],
+    ) -> str:
+        """调用 LLM 将多轮对话压缩为语义摘要"""
+        if not messages_to_summarize:
+            return ""
+
+        # 构造待摘要的对话文本
+        dialogue_lines = []
+        for m in messages_to_summarize:
+            role_label = "用户" if m["role"] == "user" else "助手"
+            # 每条消息截取前 800 字，避免摘要输入过长
+            content = m.get("content", "")[:800]
+            dialogue_lines.append(f"{role_label}：{content}")
+
+        dialogue_text = "\n".join(dialogue_lines)
+        # 限制总输入长度
+        if len(dialogue_text) > 8000:
+            dialogue_text = dialogue_text[:8000] + "\n…（后续对话已省略）"
+
+        summary_messages = [
+            {"role": "system", "content": _SUMMARY_SYSTEM_PROMPT},
+            {"role": "user", "content": f"请对以下对话生成摘要：\n\n{dialogue_text}"},
+        ]
+
+        try:
+            import httpx
+            url = f"{config.llm.BASE_URL.rstrip('/')}/chat/completions"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {config.llm.API_KEY}",
+            }
+            body = {
+                "model": config.llm.MODEL,
+                "messages": summary_messages,
+                "stream": False,
+                "max_tokens": 800,
+                "temperature": 0.3,
+                "top_p": 0.7,
+            }
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(url, headers=headers, json=body)
+                resp.raise_for_status()
+                data = resp.json()
+                summary = data["choices"][0]["message"]["content"] or ""
+                # 截断过长摘要
+                if len(summary) > SUMMARY_MAX_CHARS:
+                    summary = summary[:SUMMARY_MAX_CHARS] + "…"
+                logger.info(f"[Memory] LLM 摘要生成完成，长度={len(summary)}")
+                return summary
+        except Exception as e:
+            logger.error(f"[Memory] LLM 摘要生成失败: {e}")
+            return ""
+
+    async def refresh_summary(self, conversation_id: str) -> None:
+        """
+        后台刷新会话摘要。在每次回答完成后异步调用。
+        触发策略：基于 token 估算 —— 当历史消息总 token 超过 SUMMARY_TOKEN_THRESHOLD 时，
+        对较早的消息生成 LLM 摘要并缓存到 DB。同时要求最少 SUMMARY_MIN_MESSAGES 条消息。
+        """
+        conv_service = ConversationService()
+        try:
+            # 获取所有消息
+            all_msgs = conv_service.get_messages(conversation_id)
+            if not all_msgs or len(all_msgs) <= SUMMARY_MIN_MESSAGES:
+                return  # 消息太少，无需摘要
+
+            # 估算全部历史的 token 量
+            history_for_estimate = [
+                {"role": m["role"], "content": m["content"]}
+                for m in all_msgs
+            ]
+            total_tokens = self._estimate_tokens(history_for_estimate)
+
+            if total_tokens <= SUMMARY_TOKEN_THRESHOLD:
+                return  # token 量未达阈值，无需压缩
+
+            logger.info(
+                f"[Memory] 历史 token={total_tokens} 超过阈值 {SUMMARY_TOKEN_THRESHOLD}，"
+                f"触发摘要生成 (消息数={len(all_msgs)})"
+            )
+
+            # 确定需要摘要的范围：保留最近 RECENT_KEEP_COUNT 条，其余生成摘要
+            if len(all_msgs) <= RECENT_KEEP_COUNT:
+                return
+
+            msgs_to_summarize = all_msgs[:-RECENT_KEEP_COUNT]
+            last_summarized_id = msgs_to_summarize[-1]["id"]
+
+            # 检查是否已有覆盖到此 ID 的摘要
+            existing = conv_service.get_summary(conversation_id)
+            if existing and existing.get("summary_up_to") and existing["summary_up_to"] >= last_summarized_id:
+                return  # 摘要已是最新
+
+            # 如果已有旧摘要，将旧摘要作为前缀 + 新增消息一起摘要（增量压缩）
+            old_summary = existing["summary"] if existing else ""
+            if old_summary and existing.get("summary_up_to"):
+                # 只摘要旧摘要覆盖之后、新截断点之前的消息
+                new_msgs = [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in msgs_to_summarize
+                    if m["id"] > existing["summary_up_to"]
+                ]
+                if not new_msgs:
+                    return
+                # 将旧摘要 + 新消息一起送入 LLM 做增量摘要
+                incremental_input = [
+                    {"role": "assistant", "content": f"[之前的对话摘要] {old_summary}"}
+                ] + new_msgs
+                summary = await self._summarize_with_llm(incremental_input)
+            else:
+                # 首次生成摘要
+                plain_msgs = [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in msgs_to_summarize
+                ]
+                summary = await self._summarize_with_llm(plain_msgs)
+
+            if summary:
+                conv_service.update_summary(conversation_id, summary, last_summarized_id)
+                logger.info(
+                    f"[Memory] 摘要已缓存 conv_id={conversation_id} "
+                    f"压缩前 token≈{total_tokens} → 摘要 {len(summary)} 字符"
+                )
+
+        except Exception as e:
+            logger.error(f"[Memory] 刷新摘要失败 conv_id={conversation_id}: {e}")
+
+    def prepare_history_with_memory(
+        self,
+        conversation_id: str,
+    ) -> List[Dict[str, str]]:
+        """
+        智能加载对话历史：优先使用缓存摘要 + 近期消息，减少 token 消耗。
+        返回适合传给 _build_messages_with_context_guard 的 chat_history 列表。
+        """
+        conv_service = ConversationService()
+
+        # 检查是否有缓存摘要
+        cached = conv_service.get_summary(conversation_id)
+        if cached and cached.get("summary"):
+            # 使用摘要 + 摘要之后的消息
+            recent_msgs = conv_service.get_messages_after(
+                conversation_id, cached["summary_up_to"]
+            )
+            # 构造：摘要作为一条 system-like 上下文 + 近期原文
+            history = [
+                {"role": "assistant", "content": f"[对话历史摘要] {cached['summary']}"}
+            ] + recent_msgs
+            logger.info(
+                f"[Memory] 使用缓存摘要 + {len(recent_msgs)} 条近期消息 "
+                f"(摘要覆盖到 msg_id={cached['summary_up_to']})"
+            )
+            return history
+        else:
+            # 无缓存摘要，返回全部历史（由 _compress_history 兜底）
+            return conv_service.get_messages_for_llm(conversation_id)
 
     def _extract_citations(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         citations = []
