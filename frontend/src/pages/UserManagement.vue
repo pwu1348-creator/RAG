@@ -84,7 +84,7 @@
             <td class="avatar-col">
               <div class="user-avatar" :style="user.avatar_url ? {} : { background: user.avatarColor || '#667eea' }">
                 <img v-if="user.avatar_url" :src="user.avatar_url" class="avatar-img" />
-                <span v-else>{{ user.username?.charAt(0) || '?' }}</span>
+                <span v-else>用户</span>
               </div>
             </td>
             <td>
@@ -568,7 +568,7 @@ onMounted(() => {
   justify-content: center;
   color: white;
   font-weight: 600;
-  font-size: 16px;
+  font-size: 13px;
   overflow: hidden;
   flex-shrink: 0;
 }
