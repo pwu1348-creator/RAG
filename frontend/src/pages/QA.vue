@@ -241,7 +241,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { knowledgeApi } from '../api/knowledge'
-import { streamAsk } from '../api/qa'
+import { streamAskWithConv, createConversation } from '../api/qa'
 import AnswerModeSelector from '../components/AnswerModeSelector.vue'
 
 // -----------------------------------------------------------------------
@@ -307,6 +307,7 @@ function handleOutsideClick(e) {
 // -----------------------------------------------------------------------
 
 const STORAGE_KEY = 'rag_qa_messages'
+const CONV_ID_KEY = 'rag_qa_conv_id'
 
 const messages = ref(loadMessages())
 const inputText = ref('')
@@ -316,6 +317,7 @@ const abortController = ref(null)
 const errorLog = ref([])
 const inputRef = ref(null)
 const scrollRef = ref(null)
+const conversationId = ref(localStorage.getItem(CONV_ID_KEY) || null)
 
 const quickQuestions = [
   '这份文档的主要内容是什么？',
@@ -340,7 +342,9 @@ function saveMessages() {
 
 function clearChat() {
   messages.value = []
+  conversationId.value = null
   localStorage.removeItem(STORAGE_KEY)
+  localStorage.removeItem(CONV_ID_KEY)
 }
 
 // -----------------------------------------------------------------------
@@ -370,8 +374,22 @@ async function sendMessage() {
   const assistantMsg = messages.value[messages.value.length - 1]
   currentAssistantMsg.value = assistantMsg
 
-  // 构建聊天历史
-  const history = buildHistory()
+  // 懒创建 conversation_id（首次发送时向后端申请）
+  if (!conversationId.value) {
+    try {
+      const res = await createConversation({
+        userId: 'admin',
+        kbId: selectedKbId.value,
+        title: text.slice(0, 40),
+      })
+      conversationId.value = res?.data?.conversation_id || null
+      if (conversationId.value) {
+        localStorage.setItem(CONV_ID_KEY, conversationId.value)
+      }
+    } catch (e) {
+      console.warn('[QA] 创建会话失败，降级为无状态模式:', e.message)
+    }
+  }
 
   // 开始流式
   isStreaming.value = true
@@ -379,12 +397,12 @@ async function sendMessage() {
   abortController.value = controller
 
   try {
-    const response = await streamAsk({
+    const response = await streamAskWithConv({
       query: text,
       knowledge_base_id: selectedKbId.value,
+      conversation_id: conversationId.value,
       top_k: 5,
       use_rerank: true,
-      chat_history: history,
       signal: controller.signal,
       answer_mode: answerMode.value,
     })
