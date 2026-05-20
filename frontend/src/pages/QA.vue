@@ -124,7 +124,11 @@
                           <span v-if="src.score" class="popup-chunk-score">{{ (src.score * 100).toFixed(0) }}%</span>
                           <span v-if="src.page_idx" class="popup-chunk-page">P{{ src.page_idx }}</span>
                         </div>
-                        <div class="popup-chunk-text">{{ src.content_preview || '无内容' }}</div>
+                        <div class="popup-chunk-text popup-chunk-table" v-if="src.content_type === 'table'" v-html="sanitizeHtml(src.content_preview)"></div>
+                        <div class="popup-chunk-text" v-else>{{ src.content_preview || '无内容' }}</div>
+                        <div v-if="src.img_url" class="popup-chunk-image">
+                          <img :src="src.img_url" alt="关联图片" loading="lazy" />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -243,6 +247,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from
 import { knowledgeApi } from '../api/knowledge'
 import { streamAskWithConv, createConversation } from '../api/qa'
 import AnswerModeSelector from '../components/AnswerModeSelector.vue'
+import DOMPurify from 'dompurify'
 
 // -----------------------------------------------------------------------
 // 知识库
@@ -570,6 +575,14 @@ function formatContent(msg) {
   // 换行
   t = t.replace(/\n/g, '<br>')
   return t
+}
+
+function sanitizeHtml(html) {
+  if (!html) return ''
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'colgroup', 'col', 'br', 'p', 'span', 'strong', 'em', 'b', 'i'],
+    ALLOWED_ATTR: ['colspan', 'rowspan', 'style', 'class'],
+  })
 }
 
 function formatTime(ts) {
@@ -1003,6 +1016,29 @@ onUnmounted(() => {
   color: #1b4332;
   line-height: 1.6;
   word-break: break-word;
+}
+.popup-chunk-table :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin: 4px 0;
+}
+.popup-chunk-table :deep(th),
+.popup-chunk-table :deep(td) {
+  border: 1px solid rgba(168,230,207,0.5);
+  padding: 4px 6px;
+  text-align: left;
+}
+.popup-chunk-table :deep(th) {
+  background: rgba(168,230,207,0.2);
+  font-weight: 600;
+}
+.popup-chunk-image img {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 6px;
+  margin-top: 8px;
+  border: 1px solid rgba(168,230,207,0.3);
 }
 
 /* --- 输入区 --- */

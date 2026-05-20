@@ -47,7 +47,12 @@ export const useUserStore = defineStore('user', () => {
       }
     } catch (err) {
       console.error('Login error:', err)
-      error.value = err.message || '网络错误'
+      const msg = err.message || ''
+      if (msg.includes('账号或密码错误') || msg.includes('Invalid') || msg.includes('password') || msg.includes('unauthorized')) {
+        error.value = '账号或密码错误'
+      } else {
+        error.value = '账号或密码错误'
+      }
       return { success: false, error: error.value }
     }
   }

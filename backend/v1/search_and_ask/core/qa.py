@@ -573,14 +573,57 @@ class QuestionAnswering:
                 or doc.get("similarity")
                 or 0
             )
+
+            is_table = "<table" in content.lower()
+            content_type = "table" if is_table else "text"
+
+            if is_table:
+                content_preview = content
+            else:
+                content_preview = content[:300] + "…" if len(content) > 300 else content
+
+            img_id = doc.get("img_id", "")
+            img_url = self._get_image_url(img_id) if img_id else ""
+
             citations.append({
                 "doc_id": doc_id,
                 "chunk_id": chunk_id,
                 "docnm_kwd": doc.get("docnm_kwd", ""),
                 "page_num_int": doc.get("page_num_int", []),
-                "content_preview": content[:300] + "…" if len(content) > 300 else content,
+                "content_preview": content_preview,
+                "content_type": content_type,
+                "img_id": img_id,
+                "img_url": img_url,
                 "score": score,
             })
             if len(citations) >= 5:
                 break
         return citations
+
+    def _get_image_url(self, img_id: str) -> str:
+        if not img_id:
+            return ""
+        try:
+            import pymysql
+            from pymysql.cursors import DictCursor
+            conn = pymysql.connect(
+                host=config.mysql.HOST,
+                port=config.mysql.PORT,
+                user=config.mysql.USER,
+                password=config.mysql.PASSWORD,
+                database=config.mysql.DATABASE,
+                charset="utf8mb4",
+                cursorclass=DictCursor,
+            )
+            with conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT img_url FROM document_images WHERE img_id = %s LIMIT 1",
+                        (img_id,),
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        return row.get("img_url", "")
+        except Exception as e:
+            logger.warning(f"[QA] 查询图片 URL 失败: {e}")
+        return ""

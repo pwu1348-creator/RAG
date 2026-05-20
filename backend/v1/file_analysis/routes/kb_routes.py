@@ -20,7 +20,7 @@ class CreateKBRequest(BaseModel):
     name: str
     description: Optional[str] = None
     embedding_model: Optional[str] = None
-    vector_dimension: int = 1024
+    vector_dimension: int = 4096
     owner_id: Optional[str] = None
     owner_type: Optional[str] = None
 

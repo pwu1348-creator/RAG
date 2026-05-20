@@ -55,7 +55,14 @@
             />
           </div>
           <div class="login-title">RAG知识库系统</div>
-          <div v-if="error" class="error-message">{{ error }}</div>
+          <transition name="error-fade">
+            <div v-if="error" class="error-message">
+              <svg class="error-icon" viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+                <path d="M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/>
+              </svg>
+              <span>{{ error }}</span>
+            </div>
+          </transition>
           <form class="login-form" @submit.prevent="handleLogin">
             <div class="form-group">
               <label>用户名</label>
@@ -173,6 +180,16 @@ onUnmounted(() => {
   if (trailTimeout) clearTimeout(trailTimeout)
 })
 
+let errorTimer = null
+
+const showError = (msg) => {
+  error.value = msg
+  if (errorTimer) clearTimeout(errorTimer)
+  errorTimer = setTimeout(() => {
+    error.value = ''
+  }, 3000)
+}
+
 const handleLogin = async () => {
   error.value = ''
   loading.value = true
@@ -184,10 +201,10 @@ const handleLogin = async () => {
     if (result.success) {
       router.push('/')
     } else {
-      error.value = result.error || '登录失败'
+      showError(result.error || '账号或密码错误')
     }
   } catch (err) {
-    error.value = '网络错误'
+    showError('账号或密码错误')
   } finally {
     loading.value = false
   }
@@ -430,13 +447,34 @@ const handleLogin = async () => {
 }
 
 .error-message {
-  padding: 12px 16px;
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  border-radius: var(--radius);
+  padding: 14px 18px;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(239, 68, 68, 0.04) 100%);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-left: 4px solid #ef4444;
+  border-radius: 10px;
   color: #dc2626;
   font-size: 14px;
   margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.08);
+  animation: errorShake 0.4s ease;
+}
+
+.error-icon {
+  flex-shrink: 0;
+  color: #ef4444;
+  width: 20px;
+  height: 20px;
+}
+
+@keyframes errorShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-2px); }
+  80% { transform: translateX(2px); }
 }
 
 .form-group {
@@ -575,6 +613,25 @@ const handleLogin = async () => {
 .login-footer p {
   font-size: 12px;
   color: rgba(80, 140, 100, 0.5);
+}
+
+/* 错误消息淡出动画 */
+.error-fade-enter-active {
+  transition: all 0.3s ease-out;
+}
+
+.error-fade-leave-active {
+  transition: all 0.5s ease-in;
+}
+
+.error-fade-enter-from {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+.error-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-15px);
 }
 
 /* 移动端：隐藏左侧 */

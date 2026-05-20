@@ -130,7 +130,7 @@ class Reranker:
 
         import requests
 
-        sentences = [doc.get("content", "")[:512] for doc in candidates]
+        documents = [doc.get("content", "")[:512] for doc in candidates]
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -138,23 +138,31 @@ class Reranker:
         }
         payload = {
             "model": self.model,
-            "inputs": {"source_sentence": query, "sentences": sentences},
+            "query": query,
+            "documents": documents,
+            "top_n": top_k,
         }
 
         try:
             resp = requests.post(self.base_url, headers=headers, json=payload, timeout=30)
             resp.raise_for_status()
-            scores = resp.json()
+            data = resp.json()
 
-            if isinstance(scores, list) and len(scores) == len(candidates):
-                for i, doc in enumerate(candidates):
-                    doc["rerank_score"] = float(scores[i])
+            results_list = data.get("results", [])
+            if isinstance(results_list, list) and len(results_list) > 0:
+                reranked = []
+                for item in results_list:
+                    idx = item.get("index", 0)
+                    score = item.get("relevance_score", 0.0)
+                    if idx < len(candidates):
+                        doc = dict(candidates[idx])
+                        doc["rerank_score"] = float(score)
+                        reranked.append(doc)
+                reranked.sort(key=lambda x: x.get("rerank_score", 0), reverse=True)
+                return reranked[:top_k]
             else:
                 logger.warning(f"[Reranker] API 返回格式异常，跳过重排")
                 return candidates[:top_k]
-
-            candidates.sort(key=lambda x: x.get("rerank_score", 0), reverse=True)
-            return candidates[:top_k]
 
         except Exception as e:
             logger.warning(f"[Reranker] API 调用失败，跳过重排: {e}")
@@ -173,14 +181,14 @@ class HybridRetriever:
         self._bm25_map: Dict[str, BM25Retriever] = {}
         self.chromadb = ChromaDBService()
         self.embedding = EmbeddingService()
-        self._initialized_kbs: set = set()
         self._tenant_id: str = ""
 
     def initialize(self, knowledge_base_id: str, tenant_id: str = ""):
         if tenant_id:
             self._tenant_id = tenant_id
-        if knowledge_base_id in self._initialized_kbs:
-            return
+
+        # 每次都重新加载 PersistentClient，确保读到 Parser Service 写入的最新向量
+        self.chromadb.reload_client()
 
         try:
             collection = self.chromadb.get_collection(self._tenant_id) if self._tenant_id else None
@@ -222,14 +230,12 @@ class HybridRetriever:
             bm25 = BM25Retriever()
             bm25.add_documents(child_docs)
             self._bm25_map[knowledge_base_id] = bm25
-            self._initialized_kbs.add(knowledge_base_id)
             logger.info(f"[HybridRetriever] KB={knowledge_base_id} 初始化完成，块数={len(child_docs)}")
         except Exception as e:
             logger.error(f"[HybridRetriever] 初始化失败 KB={knowledge_base_id}: {e}")
             raise
 
     def reset(self):
-        self._initialized_kbs.clear()
         self._bm25_map.clear()
 
     def get_filters(self, kb_ids: List[str] = None, doc_ids: List[str] = None) -> Optional[Dict]:

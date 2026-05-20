@@ -47,10 +47,14 @@ request.interceptors.response.use(
       const backendMessage = response.data.message || response.data.msg || ''
       switch (response.status) {
         case 401:
+          // 如果是登录接口，不要重定向，而是返回错误信息
+          if (response.config?.url?.includes('/login')) {
+            return Promise.reject(new Error(backendMessage || '账号或密码错误'))
+          }
           const userStore = useUserStore()
           userStore.logout()
           window.location.href = '/login'
-          break
+          return Promise.reject(new Error(backendMessage || '未授权，请重新登录'))
         case 403:
           return Promise.reject(new Error(backendMessage || '没有权限访问该资源'))
         case 404:

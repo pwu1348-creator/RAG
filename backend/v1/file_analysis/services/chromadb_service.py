@@ -60,7 +60,7 @@ class ChromaDBService:
         kb_id: str,
         chunks: List[Dict[str, Any]],
         embeddings: Optional[List[List[float]]] = None,
-        vector_dim: int = 1024,
+        vector_dim: int = 4096,
     ):
         if not chunks:
             return

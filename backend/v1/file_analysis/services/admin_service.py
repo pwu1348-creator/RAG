@@ -259,7 +259,7 @@ class AdminService:
 
 
     def create_knowledge_base(self, admin_id: str, name: str, description: str = None,
-                              embedding_model: str = None, vector_dimension: int = 1024,
+                              embedding_model: str = None, vector_dimension: int = 4096,
                               owner_id: str = None, owner_type: str = None) -> Dict[str, Any]:
         from config import config
 

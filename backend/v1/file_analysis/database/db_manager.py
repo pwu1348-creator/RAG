@@ -531,7 +531,7 @@ class DatabaseManager:
                               owner_type: str, owner_id: str,
                               description: str = None,
                               embedding_model: str = None,
-                              vector_dimension: int = 1024) -> bool:
+                              vector_dimension: int = 4096) -> bool:
         sql = """
         INSERT INTO knowledge_bases (kb_id, index_id, name, description, owner_type, owner_id, embedding_model, vector_dimension)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -911,7 +911,7 @@ class DatabaseManager:
             ('model', 'llm_max_tokens', os.getenv('LLM_MAX_TOKENS', '4096'), 'integer', 'LLM 最大 Token 数'),
             ('model', 'embedding_base_url', os.getenv('EMBEDDING_BASE_URL', ''), 'string', 'Embedding API 地址'),
             ('model', 'embedding_model', os.getenv('EMBEDDING_MODEL', ''), 'string', 'Embedding 模型名称'),
-            ('model', 'embedding_dimensions', os.getenv('EMBEDDING_DIMENSIONS', '1024'), 'integer', 'Embedding 向量维度'),
+            ('model', 'embedding_dimensions', os.getenv('EMBEDDING_DIMENSIONS', '4096'), 'integer', 'Embedding 向量维度'),
             ('model', 'reranker_model', os.getenv('RERANKER_MODEL', ''), 'string', 'Reranker 模型名称'),
             ('retrieval', 'use_rerank', 'true', 'boolean', '启用重排序'),
             ('retrieval', 'use_kg', 'true', 'boolean', '启用知识图谱'),

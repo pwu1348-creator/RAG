@@ -1,5 +1,7 @@
 from typing import List, Optional, Dict, Any
 import requests
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 
 from config import config
@@ -60,18 +62,33 @@ class EmbeddingService:
         if not texts:
             return []
 
+        valid_indices = [i for i, t in enumerate(texts) if t and t.strip()]
+        valid_texts = [texts[i] for i in valid_indices]
+
+        if not valid_texts:
+            return [[0.0] * config.embedding.DIMENSIONS for _ in texts]
+
         dimensions = config.embedding.DIMENSIONS
         is_ollama = self.check_ollama_compatible()
+        batch_size = config.embedding.BATCH_SIZE
 
         try:
             if is_ollama:
-                return self._encode_ollama(texts)
+                valid_embeddings = self._encode_ollama(valid_texts)
+            elif len(valid_texts) <= batch_size:
+                valid_embeddings = self._encode_openai(valid_texts, dimensions)
             else:
-                return self._encode_openai(texts, dimensions)
+                valid_embeddings = self._encode_openai_batched(valid_texts, dimensions, batch_size)
 
         except Exception as e:
             logger.error(f"Embedding encode failed: {e}")
             raise
+
+        zero_vec = [0.0] * (len(valid_embeddings[0]) if valid_embeddings else dimensions)
+        result = [zero_vec[:] for _ in texts]
+        for idx, emb in zip(valid_indices, valid_embeddings):
+            result[idx] = emb
+        return result
 
     def _encode_openai(self, texts: List[str], dimensions: int) -> List[List[float]]:
         response = EmbeddingService._client.embeddings.create(
@@ -84,10 +101,54 @@ class EmbeddingService:
         logger.info(f"[EmbeddingService] OpenAI接口生成 {len(embeddings)} 个向量，维度: {dimensions}")
         return embeddings
 
+    def _encode_openai_batched(self, texts: List[str], dimensions: int, batch_size: int) -> List[List[float]]:
+        total = len(texts)
+        batches = [texts[i:i + batch_size] for i in range(0, total, batch_size)]
+        logger.info(f"[EmbeddingService] 分批处理: {total} 条文本, 分 {len(batches)} 批, 每批 {batch_size} 条")
+
+        all_embeddings: List[Optional[List[List[float]]]] = [None] * len(batches)
+        max_workers = min(4, len(batches))
+        max_retries = config.embedding.MAX_RETRIES
+
+        def process_batch(batch_idx: int, batch_texts: List[str]) -> tuple:
+            for attempt in range(max_retries):
+                try:
+                    response = EmbeddingService._client.embeddings.create(
+                        input=batch_texts,
+                        model=config.embedding.MODEL,
+                        dimensions=dimensions
+                    )
+                    return batch_idx, [item.embedding for item in response.data]
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        wait = 2 ** attempt
+                        logger.warning(f"[EmbeddingService] 批次 {batch_idx} 第 {attempt+1} 次失败，{wait}s 后重试: {e}")
+                        time.sleep(wait)
+                    else:
+                        logger.error(f"[EmbeddingService] 批次 {batch_idx} 重试 {max_retries} 次后仍失败: {e}")
+                        raise
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(process_batch, idx, batch): idx
+                for idx, batch in enumerate(batches)
+            }
+            for future in as_completed(futures):
+                batch_idx, result = future.result()
+                all_embeddings[batch_idx] = result
+
+        embeddings = []
+        for batch_result in all_embeddings:
+            if batch_result:
+                embeddings.extend(batch_result)
+
+        logger.info(f"[EmbeddingService] 分批完成: 共生成 {len(embeddings)} 个向量，维度: {dimensions}")
+        return embeddings
+
     def _encode_ollama(self, texts: List[str]) -> List[List[float]]:
         embeddings = []
         base_url = config.embedding.BASE_URL.rstrip('/')
-        
+
         for text in texts:
             try:
                 response = requests.post(
@@ -105,11 +166,11 @@ class EmbeddingService:
             except Exception as e:
                 logger.error(f"[EmbeddingService] Ollama encode failed for text: {e}")
                 embeddings.append([])
-        
+
         if embeddings and embeddings[0]:
             dim = len(embeddings[0])
             logger.info(f"[EmbeddingService] Ollama接口生成 {len(embeddings)} 个向量，维度: {dim}")
-        
+
         return embeddings
 
     def encode_single(self, text: str) -> List[float]:

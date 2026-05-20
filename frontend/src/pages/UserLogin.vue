@@ -36,7 +36,14 @@
           <h2 class="form-title">用户登录</h2>
           <p class="form-sub">欢迎回来，请输入您的账号信息</p>
 
-          <div v-if="errorMsg" class="error-tip">{{ errorMsg }}</div>
+          <transition name="error-fade">
+            <div v-if="errorMsg" class="error-tip">
+              <svg class="error-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                <path d="M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/>
+              </svg>
+              <span>{{ errorMsg }}</span>
+            </div>
+          </transition>
 
           <form @submit.prevent="handleLogin">
             <!-- 账号 -->
@@ -167,9 +174,19 @@ function onPasswordBlur() {
   isTypingPassword.value = false
 }
 
+let errorTimer = null
+
+function showError(msg) {
+  errorMsg.value = msg
+  if (errorTimer) clearTimeout(errorTimer)
+  errorTimer = setTimeout(() => {
+    errorMsg.value = ''
+  }, 3000)
+}
+
 async function handleLogin() {
   if (!username.value || !password.value) {
-    errorMsg.value = '请输入账号和密码'
+    showError('请输入账号和密码')
     return
   }
   errorMsg.value = ''
@@ -192,10 +209,15 @@ async function handleLogin() {
       }
       router.push('/user/chat')
     } else {
-      errorMsg.value = data.data?.message || data.message || '账号或密码错误'
+      showError('账号或密码错误')
     }
   } catch (e) {
-    errorMsg.value = e.response?.data?.message || '网络错误，请稍后重试'
+    const msg = e.response?.data?.message
+    if (msg && (msg.toLowerCase().includes('invalid') || msg.toLowerCase().includes('password') || msg.toLowerCase().includes('username'))) {
+      showError('账号或密码错误')
+    } else {
+      showError('网络错误，请稍后重试')
+    }
   } finally {
     loading.value = false
   }
@@ -416,13 +438,34 @@ onUnmounted(() => {
 }
 
 .error-tip {
-  padding: 10px 14px;
-  background: rgba(239,68,68,0.12);
-  border: 1px solid rgba(239,68,68,0.35);
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.08) 100%);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-left: 4px solid #f87171;
   border-radius: 10px;
   color: #fca5a5;
   font-size: 13px;
   margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.1);
+  animation: errorShake 0.4s ease;
+}
+
+.error-icon {
+  flex-shrink: 0;
+  color: #f87171;
+  width: 18px;
+  height: 18px;
+}
+
+@keyframes errorShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-2px); }
+  80% { transform: translateX(2px); }
 }
 
 .field {
@@ -559,6 +602,25 @@ onUnmounted(() => {
   margin-top: 32px;
   font-size: 11px;
   color: rgba(120, 180, 150, 0.4);
+}
+
+/* 错误消息淡出动画 */
+.error-fade-enter-active {
+  transition: all 0.3s ease-out;
+}
+
+.error-fade-leave-active {
+  transition: all 0.5s ease-in;
+}
+
+.error-fade-enter-from {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+.error-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-15px);
 }
 
 /* 移动端：隐藏左侧 */

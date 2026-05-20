@@ -89,7 +89,7 @@ class EmbeddingConfig:
     BASE_URL: str = "https://ai.gitee.com/v1"
     API_KEY: str = "MG6HEPE9JFLDHXJYUR0S6BNA5CUAX7X9N99KLPU4"
     MODEL: str = "Qwen3-Embedding-8B"
-    DIMENSIONS: int = 1024
+    DIMENSIONS: int = 4096
     BATCH_SIZE: int = 32
     MAX_RETRIES: int = 3
 
@@ -98,7 +98,7 @@ class EmbeddingConfig:
 class ModelConfig:
     EMBEDDING_MODEL: str = "Qwen3-Embedding-8B"
     EMBEDDING_DEVICE: str = "cpu"
-    VECTOR_DIMENSION: int = 1024
+    VECTOR_DIMENSION: int = 4096
     BATCH_SIZE: int = 32
 
 

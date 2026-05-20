@@ -38,7 +38,7 @@ class EmbeddingConfig:
     BASE_URL: str = "https://ai.gitee.com/v1"
     API_KEY: str = "MG6HEPE9JFLDHXJYUR0S6BNA5CUAX7X9N99KLPU4"
     MODEL: str = "Qwen3-Embedding-8B"
-    DIMENSIONS: int = 1024
+    DIMENSIONS: int = 4096
     BATCH_SIZE: int = 32
     MAX_RETRIES: int = 3
 
@@ -57,7 +57,7 @@ class LLMConfig:
 
 @dataclass
 class RerankerConfig:
-    BASE_URL: str = "https://ai.gitee.com/v1/sentence-similarity"
+    BASE_URL: str = "https://ai.gitee.com/v1/rerank"
     API_KEY: str = "MG6HEPE9JFLDHXJYUR0S6BNA5CUAX7X9N99KLPU4"
     MODEL: str = "bge-reranker-v2-m3"
 

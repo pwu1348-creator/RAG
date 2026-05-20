@@ -21,6 +21,7 @@ class ChromaDBService:
             return
 
         self._initialized = True
+        self._is_persistent = not config.chromadb.HOST
         self.client = chromadb.HttpClient(
             host=config.chromadb.HOST,
             port=config.chromadb.PORT
@@ -30,6 +31,16 @@ class ChromaDBService:
 
         self._collections: Dict[str, Any] = {}
         logger.info("[ChromaDB-Search] 服务初始化完成")
+
+    def reload_client(self):
+        """重新加载 PersistentClient，刷新 HNSW 内存索引以读取最新写入。"""
+        if not self._is_persistent:
+            return
+        self.client = chromadb.PersistentClient(
+            path=config.chromadb.PERSIST_DIRECTORY
+        )
+        self._collections.clear()
+        logger.info("[ChromaDB-Search] PersistentClient 已重新加载，HNSW 索引已刷新")
 
     def _get_collection_name(self, tenant_id: str) -> str:
         return f"pengpengrag_{tenant_id}"

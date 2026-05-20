@@ -69,7 +69,7 @@
         <div class="topbar-left">
           <div class="user-topbar-avatar">
             <img v-if="userInfo.avatar_url" :src="userInfo.avatar_url" class="user-topbar-img" />
-            <span v-else>{{ (userInfo.username || 'U')[0].toUpperCase() }}</span>
+            <span v-else class="avatar-text-default">用户</span>
           </div>
           <div>
             <div class="assistant-name">{{ assistantConfig.name || '智能助手' }}</div>
@@ -145,7 +145,11 @@
                       <span v-if="src.score" class="popup-chunk-score">{{ (src.score * 100).toFixed(0) }}%</span>
                       <span v-if="src.page_idx" class="popup-chunk-page">P{{ src.page_idx }}</span>
                     </div>
-                    <div class="popup-chunk-text">{{ src.content_preview || '无内容' }}</div>
+                    <div class="popup-chunk-text popup-chunk-table" v-if="src.content_type === 'table'" v-html="sanitizeHtml(src.content_preview)"></div>
+                    <div class="popup-chunk-text" v-else>{{ src.content_preview || '无内容' }}</div>
+                    <div v-if="src.img_url" class="popup-chunk-image">
+                      <img :src="src.img_url" alt="关联图片" loading="lazy" />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -233,7 +237,7 @@
             <div class="profile-avatar-wrap" @click="triggerAvatarUpload">
               <img v-if="pendingAvatarPreview" :src="pendingAvatarPreview" class="profile-avatar-img" />
               <img v-else-if="userInfo.avatar_url" :src="userInfo.avatar_url" class="profile-avatar-img" />
-              <div v-else class="profile-avatar">{{ (userInfo.username || 'U')[0].toUpperCase() }}</div>
+              <div v-else class="profile-avatar">用户</div>
               <div class="avatar-overlay">
                 <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M4,4H7L9,2H15L17,4H20A2,2 0 0,1 22,6V18A2,2 0 0,1 20,20H4A2,2 0 0,1 2,18V6A2,2 0 0,1 4,4M12,7A5,5 0 0,0 7,12A5,5 0 0,0 12,17A5,5 0 0,0 17,12A5,5 0 0,0 12,7M12,9A3,3 0 0,1 15,12A3,3 0 0,1 12,15A3,3 0 0,1 9,12A3,3 0 0,1 12,9Z"/></svg>
                 <span>更换头像</span>
@@ -266,6 +270,7 @@ import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { streamAskWithConv, createConversation, listConversations, deleteConversation } from '../api/qa'
 import AnswerModeSelector from '../components/AnswerModeSelector.vue'
+import DOMPurify from 'dompurify'
 import axios from 'axios'
 
 const router = useRouter()
@@ -298,24 +303,30 @@ async function loadKBList() {
       headers: { Authorization: `Bearer ${userToken()}` },
     })
     const allKBs = res.data?.data?.knowledge_bases || []
-    // 读取部门数据，找出当前用户所在部门关联的知识库
+    const currentUserId = String(userInfo.user_id || '')
     const username = userInfo.username
     const deptRaw = localStorage.getItem('rag_departments')
     const depts = deptRaw ? JSON.parse(deptRaw) : []
-    // 找出包含当前用户的部门
     const userDepts = depts.filter(d => (d.memberUsernames || []).includes(username))
+
+    // 先过滤掉其他用户的个人知识库
+    const visibleKBs = allKBs.filter(kb => {
+      if (kb.owner_type === 'user') {
+        return String(kb.owner_id) === currentUserId
+      }
+      return true
+    })
+
     if (userDepts.length === 0) {
-      // 不在任何部门：显示全部（或可改为空列表，视业务需求）
-      kbList.value = allKBs
+      kbList.value = visibleKBs
     } else {
-      // 收集所有部门关联的 kbId（通过"关联部门"功能设置的）
       const allowedKbIds = new Set()
       for (const d of userDepts) {
         for (const id of (d.kbIds || [])) allowedKbIds.add(id)
       }
-      // 同时包含所有者为当前用户所在部门的知识库
       const userDeptIds = new Set(userDepts.map(d => d.id))
-      kbList.value = allKBs.filter(kb =>
+      kbList.value = visibleKBs.filter(kb =>
+        kb.owner_type === 'user' ||
         allowedKbIds.has(kb.kb_id) ||
         (kb.owner_type === 'department' && userDeptIds.has(String(kb.owner_id)))
       )
@@ -593,6 +604,14 @@ function renderText(content) {
     .replace(/\n/g, '<br>')
 }
 
+function sanitizeHtml(html) {
+  if (!html) return ''
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'colgroup', 'col', 'br', 'p', 'span', 'strong', 'em', 'b', 'i'],
+    ALLOWED_ATTR: ['colspan', 'rowspan', 'style', 'class'],
+  })
+}
+
 function fmtTime(ts) {
   return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
@@ -859,6 +878,7 @@ onMounted(async () => {
   border-radius: 50%; display: flex; align-items: center; justify-content: center;
   color: white; font-weight: 600; font-size: 16px; overflow: hidden;
 }
+.user-topbar-avatar .avatar-text-default { font-size: 12px; }
 .user-topbar-img { width: 100%; height: 100%; object-fit: cover; }
 .assistant-name { font-size: 15px; font-weight: 600; color: #1b4332; }
 .assistant-kb { font-size: 12px; color: #74c69d; }
@@ -993,6 +1013,29 @@ onMounted(async () => {
 .popup-chunk-score { font-size: 10px; color: #52b788; background: rgba(168,230,207,0.3); padding: 1px 6px; border-radius: 8px; }
 .popup-chunk-page { font-size: 10px; color: #74c69d; }
 .popup-chunk-text { font-size: 12px; color: #1b4332; line-height: 1.6; word-break: break-word; }
+.popup-chunk-table :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin: 4px 0;
+}
+.popup-chunk-table :deep(th),
+.popup-chunk-table :deep(td) {
+  border: 1px solid rgba(168,230,207,0.5);
+  padding: 4px 6px;
+  text-align: left;
+}
+.popup-chunk-table :deep(th) {
+  background: rgba(168,230,207,0.2);
+  font-weight: 600;
+}
+.popup-chunk-image img {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 6px;
+  margin-top: 8px;
+  border: 1px solid rgba(168,230,207,0.3);
+}
 .msg-error { font-size: 12px; color: #ef4444; margin-top: 4px; }
 .msg-time { font-size: 11px; color: #b7e4c7; margin-top: 4px; }
 
@@ -1096,7 +1139,7 @@ onMounted(async () => {
 .profile-avatar {
   width: 80px; height: 80px; border-radius: 50%;
   background: linear-gradient(135deg, #52b788, #2d6a4f);
-  color: white; font-size: 28px; font-weight: 700;
+  color: white; font-size: 20px; font-weight: 700;
   display: flex; align-items: center; justify-content: center;
 }
 
@@ -1276,6 +1319,16 @@ onMounted(async () => {
 .dark-forest .popup-chunk { background: rgba(100,180,160,0.08); border-color: rgba(100,180,160,0.15); }
 .dark-forest .popup-chunk-idx { color: #a0e8d2; }
 .dark-forest .popup-chunk-text { color: #c8f5e6; }
+.dark-forest .popup-chunk-table :deep(th),
+.dark-forest .popup-chunk-table :deep(td) {
+  border-color: rgba(100,180,160,0.3);
+}
+.dark-forest .popup-chunk-table :deep(th) {
+  background: rgba(100,180,160,0.15);
+}
+.dark-forest .popup-chunk-image img {
+  border-color: rgba(100,180,160,0.25);
+}
 
 .dark-forest .input-wrap {
   background: rgba(26,47,43,0.9); border-color: rgba(100,180,160,0.25);
