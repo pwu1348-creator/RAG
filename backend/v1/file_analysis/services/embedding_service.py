@@ -91,58 +91,45 @@ class EmbeddingService:
         return result
 
     def _encode_openai(self, texts: List[str], dimensions: int) -> List[List[float]]:
-        response = EmbeddingService._client.embeddings.create(
-            input=texts,
-            model=config.embedding.MODEL,
-            dimensions=dimensions
-        )
-
-        embeddings = [item.embedding for item in response.data]
-        logger.info(f"[EmbeddingService] OpenAI接口生成 {len(embeddings)} 个向量，维度: {dimensions}")
-        return embeddings
+        return self._encode_openai_batched(texts, dimensions, config.embedding.BATCH_SIZE)
 
     def _encode_openai_batched(self, texts: List[str], dimensions: int, batch_size: int) -> List[List[float]]:
         total = len(texts)
-        batches = [texts[i:i + batch_size] for i in range(0, total, batch_size)]
-        logger.info(f"[EmbeddingService] 分批处理: {total} 条文本, 分 {len(batches)} 批, 每批 {batch_size} 条")
+        logger.info(f"[EmbeddingService] 并发处理: {total} 条文本, 维度: {dimensions}")
 
-        all_embeddings: List[Optional[List[List[float]]]] = [None] * len(batches)
-        max_workers = min(4, len(batches))
+        all_embeddings: List[Optional[List[float]]] = [None] * total
+        max_workers = min(8, total)
         max_retries = config.embedding.MAX_RETRIES
 
-        def process_batch(batch_idx: int, batch_texts: List[str]) -> tuple:
+        def process_single(idx: int, text: str) -> tuple:
             for attempt in range(max_retries):
                 try:
                     response = EmbeddingService._client.embeddings.create(
-                        input=batch_texts,
+                        input=text,
                         model=config.embedding.MODEL,
                         dimensions=dimensions
                     )
-                    return batch_idx, [item.embedding for item in response.data]
+                    return idx, response.data[0].embedding
                 except Exception as e:
                     if attempt < max_retries - 1:
                         wait = 2 ** attempt
-                        logger.warning(f"[EmbeddingService] 批次 {batch_idx} 第 {attempt+1} 次失败，{wait}s 后重试: {e}")
+                        logger.warning(f"[EmbeddingService] 文本 {idx} 第 {attempt+1} 次失败，{wait}s 后重试: {e}")
                         time.sleep(wait)
                     else:
-                        logger.error(f"[EmbeddingService] 批次 {batch_idx} 重试 {max_retries} 次后仍失败: {e}")
+                        logger.error(f"[EmbeddingService] 文本 {idx} 重试 {max_retries} 次后仍失败: {e}")
                         raise
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
-                executor.submit(process_batch, idx, batch): idx
-                for idx, batch in enumerate(batches)
+                executor.submit(process_single, idx, text): idx
+                for idx, text in enumerate(texts)
             }
             for future in as_completed(futures):
-                batch_idx, result = future.result()
-                all_embeddings[batch_idx] = result
+                idx, embedding = future.result()
+                all_embeddings[idx] = embedding
 
-        embeddings = []
-        for batch_result in all_embeddings:
-            if batch_result:
-                embeddings.extend(batch_result)
-
-        logger.info(f"[EmbeddingService] 分批完成: 共生成 {len(embeddings)} 个向量，维度: {dimensions}")
+        embeddings = [e for e in all_embeddings if e is not None]
+        logger.info(f"[EmbeddingService] 完成: 共生成 {len(embeddings)} 个向量，维度: {dimensions}")
         return embeddings
 
     def _encode_ollama(self, texts: List[str]) -> List[List[float]]:

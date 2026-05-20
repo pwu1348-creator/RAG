@@ -148,12 +148,12 @@ class Reranker:
             resp.raise_for_status()
             data = resp.json()
 
-            results_list = data.get("results", [])
+            results_list = data.get("results", None) or data if isinstance(data, list) else data.get("results", [])
             if isinstance(results_list, list) and len(results_list) > 0:
                 reranked = []
                 for item in results_list:
                     idx = item.get("index", 0)
-                    score = item.get("relevance_score", 0.0)
+                    score = item.get("relevance_score", item.get("score", 0.0))
                     if idx < len(candidates):
                         doc = dict(candidates[idx])
                         doc["rerank_score"] = float(score)
@@ -426,7 +426,8 @@ class SearchService:
             before = len(candidates)
             candidates = [
                 r for r in candidates
-                if r.get("rerank_score", r.get("rrf_score", r.get("similarity", 0))) >= min_score
+                if r.get("rerank_score", r.get("similarity", 0)) >= min_score
+                or ("rerank_score" not in r and "similarity" not in r)
             ]
             if before > 0 and not candidates:
                 logger.warning(f"[SearchService] min_score={min_score} 过滤后为空，考虑降低阈值")

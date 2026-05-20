@@ -16,7 +16,7 @@ STRICT_PRESET: Dict[str, Any] = {
     "retrieval": {
         "bm25_weight": 0.5,
         "vector_weight": 0.5,
-        "min_score": 0.4,
+        "min_score": 0.15,
         "top_k": 10,
         "use_rerank": True,
         "use_kg": True,
@@ -40,7 +40,7 @@ LOOSE_PRESET: Dict[str, Any] = {
     "retrieval": {
         "bm25_weight": 0.7,
         "vector_weight": 0.3,
-        "min_score": 0.2,
+        "min_score": 0.15,
         "top_k": 10,
         "use_rerank": True,
         "use_kg": True,
