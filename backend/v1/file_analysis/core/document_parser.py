@@ -69,7 +69,10 @@ LOCAL_IMAGE_DIR = os.path.join(LOCAL_STORAGE_ROOT, "image-minIO")
 IMAGE_URL_PREFIX = "http://localhost:8000/uploads/image-minIO"
 
 _NATIVE_OFFICE_EXTS = {".docx", ".pptx", ".xlsx"}
-_LEGACY_OFFICE_EXTS = {".doc", ".ppt", ".xls", ".txt", ".md", ".html"}
+_LEGACY_OFFICE_EXTS = {".doc", ".ppt", ".xls", ".html"}
+_PLAIN_TEXT_EXTS = {".txt", ".md"}
+
+PLAIN_TEXT_CHUNK_SIZE = 512
 
 
 @dataclass
@@ -158,6 +161,130 @@ def _content_list_to_chunks(
             "type":            chunk_type,
             "page_idx":        item.get("page_idx", 0),
             "bbox":            item.get("bbox", [0, 0, 0, 0]),
+            "img_id":          "",
+        })
+
+    return chunks
+
+
+def _estimate_tokens(text: str) -> int:
+    count = 0
+    for char in text:
+        if '一' <= char <= '鿿' or '㐀' <= char <= '䶿':
+            count += 1
+        elif char in (' ', '\t', '\n'):
+            continue
+        elif char.isascii() and char.isalpha():
+            count += 0.25
+        else:
+            count += 0.5
+    return max(int(count), 1)
+
+
+def _split_text_by_tokens(text: str, max_tokens: int = PLAIN_TEXT_CHUNK_SIZE) -> List[str]:
+    paragraphs = re.split(r'\n{2,}', text)
+    chunks = []
+    current_chunk = ""
+
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+
+        para_tokens = _estimate_tokens(para)
+
+        if para_tokens > max_tokens:
+            if current_chunk:
+                chunks.append(current_chunk)
+                current_chunk = ""
+            sentences = re.split(r'(?<=[。！？.!?\n])', para)
+            for sent in sentences:
+                sent = sent.strip()
+                if not sent:
+                    continue
+                if _estimate_tokens(current_chunk + "\n" + sent if current_chunk else sent) <= max_tokens:
+                    current_chunk = current_chunk + "\n" + sent if current_chunk else sent
+                else:
+                    if current_chunk:
+                        chunks.append(current_chunk)
+                    current_chunk = sent
+        elif _estimate_tokens(current_chunk + "\n\n" + para if current_chunk else para) <= max_tokens:
+            current_chunk = current_chunk + "\n\n" + para if current_chunk else para
+        else:
+            if current_chunk:
+                chunks.append(current_chunk)
+            current_chunk = para
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks
+
+
+def _split_markdown_by_heading(text: str, max_tokens: int = PLAIN_TEXT_CHUNK_SIZE) -> List[str]:
+    sections = re.split(r'(?=^#{1,6}\s)', text, flags=re.MULTILINE)
+
+    merged_sections = []
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+        if merged_sections and _estimate_tokens(merged_sections[-1] + "\n\n" + section) <= max_tokens:
+            merged_sections[-1] = merged_sections[-1] + "\n\n" + section
+        else:
+            merged_sections.append(section)
+
+    chunks = []
+    for section in merged_sections:
+        if _estimate_tokens(section) <= max_tokens:
+            chunks.append(section)
+        else:
+            sub_chunks = _split_text_by_tokens(section, max_tokens)
+            chunks.extend(sub_chunks)
+
+    return chunks
+
+
+def _parse_plain_text_to_chunks(file_path: str, doc_name: str = "") -> List[Dict[str, Any]]:
+    encodings = ['utf-8', 'gbk', 'gb2312', 'utf-16', 'latin-1']
+    text = None
+    for enc in encodings:
+        try:
+            with open(file_path, 'r', encoding=enc) as f:
+                text = f.read()
+            break
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+
+    if text is None:
+        raise ValueError(f"无法读取文件，尝试的编码: {encodings}")
+
+    text = text.strip()
+    if not text:
+        return []
+
+    title_tks = _tokenize(doc_name) if doc_name else ""
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == ".md":
+        text_chunks = _split_markdown_by_heading(text, PLAIN_TEXT_CHUNK_SIZE)
+    else:
+        text_chunks = _split_text_by_tokens(text, PLAIN_TEXT_CHUNK_SIZE)
+
+    chunks = []
+    for chunk_text in text_chunks:
+        content = _normalize_content(chunk_text, "text")
+        if not content:
+            continue
+        content_tks = _tokenize(content)
+        chunks.append({
+            "content":         content,
+            "content_ltks":    content_tks,
+            "content_sm_ltks": content_tks,
+            "title_tks":       title_tks,
+            "title_sm_tks":    title_tks,
+            "type":            "text",
+            "page_idx":        0,
+            "bbox":            [0, 0, 0, 0],
             "img_id":          "",
         })
 
@@ -319,7 +446,42 @@ class MinerUParser(BaseParser):
         os.makedirs(temp_image_dir, exist_ok=True)
 
         try:
-            if ext in _NATIVE_OFFICE_EXTS:
+            if ext in _PLAIN_TEXT_EXTS:
+                logger.info(f"[Parser-INFO] {ext} 文件直接按 token 切分，chunk_size={PLAIN_TEXT_CHUNK_SIZE}")
+                if progress_callback:
+                    progress_callback(30)
+                doc_name = os.path.splitext(os.path.basename(file_path))[0]
+                chunks = _parse_plain_text_to_chunks(file_path, doc_name=doc_name)
+                processing_time = time.time() - start_time
+
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    full_text = f.read()
+
+                metadata = DocumentMetadata(
+                    title=doc_name,
+                    author="",
+                    pages=1,
+                    word_count=len(full_text),
+                    file_type=ext,
+                    has_images=False,
+                    has_tables=False,
+                    has_formulas=False,
+                    processing_time=processing_time,
+                )
+
+                if progress_callback:
+                    progress_callback(100)
+
+                return ParseResult(
+                    text=full_text,
+                    markdown="",
+                    middle_content={},
+                    metadata=metadata,
+                    chunks=chunks,
+                    raw_output={"content_list": [], "middle_content": {}, "temp_image_dir": ""},
+                )
+
+            elif ext in _NATIVE_OFFICE_EXTS:
                 if progress_callback:
                     progress_callback(30)
                 middle_json, content_list = _parse_office_native(file_path, temp_image_dir)
