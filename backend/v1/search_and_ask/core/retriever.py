@@ -130,7 +130,18 @@ class Reranker:
 
         import requests
 
-        documents = [doc.get("content", "")[:512] for doc in candidates]
+        # 过滤空文档，记录原始索引映射
+        valid_indices = []
+        documents = []
+        for i, doc in enumerate(candidates):
+            content = doc.get("content", "").strip()[:512]
+            if content:
+                valid_indices.append(i)
+                documents.append(content)
+
+        if not documents:
+            return candidates[:top_k]
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -140,30 +151,35 @@ class Reranker:
             "model": self.model,
             "query": query,
             "documents": documents,
-            "top_n": top_k,
+            "top_n": min(top_k, len(documents)),
         }
 
         try:
             resp = requests.post(self.base_url, headers=headers, json=payload, timeout=30)
             resp.raise_for_status()
-            data = resp.json()
+            result = resp.json()
 
-            results_list = data.get("results", None) or data if isinstance(data, list) else data.get("results", [])
-            if isinstance(results_list, list) and len(results_list) > 0:
-                reranked = []
-                for item in results_list:
+            # rerank API 返回格式: {"results": [{"index": 0, "relevance_score": 0.95}, ...]}
+            results = result.get("results", [])
+            if isinstance(results, list) and results:
+                for item in results:
                     idx = item.get("index", 0)
-                    score = item.get("relevance_score", item.get("score", 0.0))
-                    if idx < len(candidates):
-                        doc = dict(candidates[idx])
-                        doc["rerank_score"] = float(score)
-                        reranked.append(doc)
-                reranked.sort(key=lambda x: x.get("rerank_score", 0), reverse=True)
-                return reranked[:top_k]
+                    score = item.get("relevance_score", 0.0)
+                    # idx 对应 documents 列表的索引，需映射回 candidates 的原始索引
+                    if 0 <= idx < len(valid_indices):
+                        orig_idx = valid_indices[idx]
+                        candidates[orig_idx]["rerank_score"] = float(score)
+                # 按 rerank_score 降序排列
+                scored = [c for c in candidates if "rerank_score" in c]
+                scored.sort(key=lambda x: x.get("rerank_score", 0), reverse=True)
+                return scored[:top_k]
             else:
                 logger.warning(f"[Reranker] API 返回格式异常，跳过重排")
                 return candidates[:top_k]
 
+        except requests.exceptions.HTTPError as e:
+            logger.warning(f"[Reranker] API 调用失败，跳过重排: {e}; 响应: {e.response.text if e.response else 'N/A'}")
+            return candidates[:top_k]
         except Exception as e:
             logger.warning(f"[Reranker] API 调用失败，跳过重排: {e}")
             return candidates[:top_k]
@@ -181,19 +197,24 @@ class HybridRetriever:
         self._bm25_map: Dict[str, BM25Retriever] = {}
         self.chromadb = ChromaDBService()
         self.embedding = EmbeddingService()
+        self._initialized_kbs: set = set()
         self._tenant_id: str = ""
+        self._kb_doc_count: Dict[str, int] = {}
 
     def initialize(self, knowledge_base_id: str, tenant_id: str = ""):
         if tenant_id:
             self._tenant_id = tenant_id
 
-        # 每次都重新加载 PersistentClient，确保读到 Parser Service 写入的最新向量
-        self.chromadb.reload_client()
-
         try:
             collection = self.chromadb.get_collection(self._tenant_id) if self._tenant_id else None
             if not collection:
                 logger.warning(f"[HybridRetriever] 无法获取 collection, tenant_id={self._tenant_id}")
+                return
+
+            current_count = collection.count()
+            cached_count = self._kb_doc_count.get(knowledge_base_id, -1)
+
+            if knowledge_base_id in self._initialized_kbs and current_count == cached_count:
                 return
 
             results = collection.get(
@@ -230,12 +251,15 @@ class HybridRetriever:
             bm25 = BM25Retriever()
             bm25.add_documents(child_docs)
             self._bm25_map[knowledge_base_id] = bm25
+            self._initialized_kbs.add(knowledge_base_id)
+            self._kb_doc_count[knowledge_base_id] = current_count
             logger.info(f"[HybridRetriever] KB={knowledge_base_id} 初始化完成，块数={len(child_docs)}")
         except Exception as e:
             logger.error(f"[HybridRetriever] 初始化失败 KB={knowledge_base_id}: {e}")
             raise
 
     def reset(self):
+        self._initialized_kbs.clear()
         self._bm25_map.clear()
 
     def get_filters(self, kb_ids: List[str] = None, doc_ids: List[str] = None) -> Optional[Dict]:
@@ -247,6 +271,48 @@ class HybridRetriever:
         if not conditions:
             return None
         return conditions[0] if len(conditions) == 1 else {"$and": conditions}
+
+    def _vector_query(
+        self,
+        query_emb: List[float],
+        knowledge_base_id: str,
+        doc_ids: List[str],
+        top_k: int,
+    ) -> List[Dict[str, Any]]:
+        collection = self.chromadb.get_collection(self._tenant_id)
+        filters = self.get_filters(kb_ids=[knowledge_base_id], doc_ids=doc_ids)
+
+        raw = collection.query(
+            query_embeddings=[query_emb],
+            n_results=top_k,
+            where=filters,
+            include=["documents", "metadatas", "distances"],
+        )
+        ids0 = raw.get("ids", [[]])[0]
+        docs0 = raw.get("documents", [[]])[0]
+        metas0 = raw.get("metadatas", [[]])[0]
+        dists0 = raw.get("distances", [[]])[0]
+
+        results = []
+        for i in range(len(ids0)):
+            meta = metas0[i] if i < len(metas0) else {}
+            results.append({
+                "chunk_id": ids0[i],
+                "content": docs0[i] if i < len(docs0) else "",
+                "content_ltks": meta.get("content_ltks", ""),
+                "title_tks": meta.get("title_tks", ""),
+                "doc_id": meta.get("doc_id", ""),
+                "kb_id": meta.get("kb_id", knowledge_base_id),
+                "docnm_kwd": meta.get("docnm_kwd", ""),
+                "page_num_int": json.loads(meta.get("page_num_int", "[]")),
+                "position_int": json.loads(meta.get("position_int", "[]")),
+                "top_int": json.loads(meta.get("top_int", "[1]")),
+                "create_timestamp_flt": meta.get("create_timestamp_flt", 0.0),
+                "img_id": meta.get("img_id", ""),
+                "similarity": 1.0 - float(dists0[i]) if i < len(dists0) else 0.0,
+                "metadata": meta,
+            })
+        return results
 
     def search(
         self,
@@ -268,40 +334,19 @@ class HybridRetriever:
         vector_results = []
         try:
             query_emb = self.embedding.encode([query])[0]
-            collection = self.chromadb.get_collection(self._tenant_id)
-            filters = self.get_filters(kb_ids=[knowledge_base_id], doc_ids=doc_ids)
-
-            raw = collection.query(
-                query_embeddings=[query_emb],
-                n_results=top_k,
-                where=filters,
-                include=["documents", "metadatas", "distances"],
-            )
-            ids0 = raw.get("ids", [[]])[0]
-            docs0 = raw.get("documents", [[]])[0]
-            metas0 = raw.get("metadatas", [[]])[0]
-            dists0 = raw.get("distances", [[]])[0]
-
-            for i in range(len(ids0)):
-                meta = metas0[i] if i < len(metas0) else {}
-                vector_results.append({
-                    "chunk_id": ids0[i],
-                    "content": docs0[i] if i < len(docs0) else "",
-                    "content_ltks": meta.get("content_ltks", ""),
-                    "title_tks": meta.get("title_tks", ""),
-                    "doc_id": meta.get("doc_id", ""),
-                    "kb_id": meta.get("kb_id", knowledge_base_id),
-                    "docnm_kwd": meta.get("docnm_kwd", ""),
-                    "page_num_int": json.loads(meta.get("page_num_int", "[]")),
-                    "position_int": json.loads(meta.get("position_int", "[]")),
-                    "top_int": json.loads(meta.get("top_int", "[1]")),
-                    "create_timestamp_flt": meta.get("create_timestamp_flt", 0.0),
-                    "img_id": meta.get("img_id", ""),
-                    "similarity": 1.0 - float(dists0[i]) if i < len(dists0) else 0.0,
-                    "metadata": meta,
-                })
+            vector_results = self._vector_query(query_emb, knowledge_base_id, doc_ids, top_k)
         except Exception as e:
-            logger.error(f"[HybridRetriever] 向量检索失败: {e}")
+            if "Error finding id" in str(e) or "Internal error" in str(e):
+                logger.warning(f"[HybridRetriever] 向量检索索引异常，重建客户端重试: {e}")
+                try:
+                    self.chromadb.reload_client()
+                    self.chromadb.invalidate_collection(self._tenant_id)
+                    vector_results = self._vector_query(query_emb, knowledge_base_id, doc_ids, top_k)
+                    logger.info("[HybridRetriever] 重试向量检索成功")
+                except Exception as retry_err:
+                    logger.error(f"[HybridRetriever] 重试向量检索仍失败: {retry_err}")
+            else:
+                logger.error(f"[HybridRetriever] 向量检索失败: {e}")
 
         return self._rrf_fuse(
             bm25_results, vector_results,
@@ -424,11 +469,16 @@ class SearchService:
 
         if min_score > 0:
             before = len(candidates)
-            candidates = [
-                r for r in candidates
-                if r.get("rerank_score", r.get("similarity", 0)) >= min_score
-                or ("rerank_score" not in r and "similarity" not in r)
-            ]
+            # rerank_score 范围 0~1，rrf_score 范围通常 0.001~0.03，需区分
+            if candidates and "rerank_score" in candidates[0]:
+                # 有 rerank 分数，直接用 min_score 过滤
+                candidates = [
+                    r for r in candidates
+                    if r.get("rerank_score", 0) >= min_score
+                ]
+            else:
+                # 只有 rrf_score 或 similarity，不做硬过滤（RRF 分数量级太小）
+                pass
             if before > 0 and not candidates:
                 logger.warning(f"[SearchService] min_score={min_score} 过滤后为空，考虑降低阈值")
 

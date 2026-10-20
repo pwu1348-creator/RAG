@@ -2,102 +2,17 @@ import os
 import json
 import threading
 from datetime import datetime
-from typing import Optional, Dict, List, Any, Callable
+from typing import Optional, Dict, List, Any
 from concurrent.futures import ThreadPoolExecutor
 
 from config import config
 from models.task import ParseTask, TaskStatus
-from models.document import DocumentMetadata
 from utils.logger import logger
-from utils.rag_tokenizer import RagTokenizer
 from services.minio_service import MinIOService
 from services.mysql_service import MySQLService
 from services.chromadb_service import ChromaDBService
 from services.embedding_service import EmbeddingService
 from core.document_parser import DocumentParser, DocumentProcessor
-
-
-_tokenizer = RagTokenizer()
-
-
-def _tokenize_for_count(text: str) -> str:
-    try:
-        return _tokenizer.tokenize(text)
-    except Exception:
-        return text
-
-
-def count_tokens(text: str) -> int:
-    tks = _tokenize_for_count(text)
-    return len(tks.split()) if tks else 0
-
-
-def merge_chunks_by_token(
-    chunks: List[Dict[str, Any]],
-    chunk_token_num: int = 512,
-) -> List[Dict[str, Any]]:
-    """对超过 token 上限的 chunk 强制切分，不做合并。"""
-    if not chunks or chunk_token_num <= 0:
-        return chunks
-
-    result: List[Dict[str, Any]] = []
-
-    for chunk in chunks:
-        if chunk.get("type") == "table":
-            result.append(chunk)
-            continue
-
-        content = chunk.get("content", "")
-        token_count = count_tokens(content)
-
-        if token_count <= chunk_token_num:
-            result.append(chunk)
-            continue
-
-        # 超过 512 token，按 token 数强制切分
-        words = content.split()
-        sub_contents = []
-        buf = []
-        buf_count = 0
-        for word in words:
-            word_tks = count_tokens(word)
-            if buf_count + word_tks > chunk_token_num and buf:
-                sub_contents.append(" ".join(buf))
-                buf = []
-                buf_count = 0
-            buf.append(word)
-            buf_count += word_tks
-        if buf:
-            sub_contents.append(" ".join(buf))
-
-        # 如果按空格切不动（中文无空格），按字符估算切分
-        if len(sub_contents) <= 1 and token_count > chunk_token_num:
-            chars_per_chunk = len(content) * chunk_token_num // token_count
-            sub_contents = []
-            for i in range(0, len(content), chars_per_chunk):
-                seg = content[i:i + chars_per_chunk]
-                if seg.strip():
-                    sub_contents.append(seg)
-
-        for seg in sub_contents:
-            seg_tks = _tokenize_for_count(seg)
-            result.append({
-                "title_tks":    chunk.get("title_tks", ""),
-                "title_sm_tks": chunk.get("title_sm_tks", ""),
-                "type":         chunk.get("type", "text"),
-                "page_idx":     chunk.get("page_idx", 0),
-                "bbox":         chunk.get("bbox", [0, 0, 0, 0]),
-                "img_id":       chunk.get("img_id", ""),
-                "content":      seg,
-                "content_ltks": seg_tks,
-                "content_sm_ltks": seg_tks,
-            })
-
-    logger.info(
-        f"[ParserService] chunk 切分: {len(chunks)} 个原始块 → {len(result)} 个块 "
-        f"(上限={chunk_token_num} tokens，仅切分超长块，不合并)"
-    )
-    return result
 
 
 class ParserService:
@@ -193,9 +108,6 @@ class ParserService:
                     logger.info(f"Using existing document: {file_id}")
             
             task.progress = 30
-
-            chunk_token_num = task.options.get("chunk_token_num", 512)
-            task.options["chunk_merger"] = lambda chunks: merge_chunks_by_token(chunks, chunk_token_num)
 
             parse_result = self.document_processor.process_document(
                 file_path=task.file_path,

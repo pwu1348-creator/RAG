@@ -3,10 +3,9 @@ const path = require('path')
 
 const cwd = path.join(__dirname, '../frontend')
 
-const proc = spawn('node', ['node_modules/vite/bin/vite.js', '--port', '3000'], {
+const proc = spawn('node', ['node_modules/vite/bin/vite.js', '--port', '3000', '--host'], {
   cwd,
-  stdio: 'inherit',
-  windowsHide: true
+  stdio: 'inherit'
 })
 
 proc.on('exit', (code) => {

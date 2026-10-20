@@ -6,6 +6,7 @@ from config import config
 from services.knowledge_graph_service import KnowledgeGraphService
 from services.embedding_service import EmbeddingService
 from services.chromadb_service import ChromaDBService
+from core.retriever import _resolve_tenant_id
 from utils.logger import logger
 
 
@@ -117,6 +118,16 @@ class KGRetriever:
         results_by_chunk = {}
         
         try:
+            # 通过 knowledge_base_id 解析 tenant_id 以获取正确的 collection
+            tenant_id = _resolve_tenant_id(knowledge_base_id)
+            if not tenant_id:
+                logger.warning(f"[KGRetriever] 无法解析 tenant_id, kb_id={knowledge_base_id}")
+                return []
+            collection = self.chromadb_service.get_collection(tenant_id)
+            if not collection:
+                logger.warning(f"[KGRetriever] 无法获取 collection, tenant_id={tenant_id}")
+                return []
+
             for entity in list(entities)[:10]:
                 try:
                     embeddings = self.embedding_service.encode([entity])
@@ -125,7 +136,7 @@ class KGRetriever:
                     
                     entity_embedding = embeddings[0]
                     
-                    raw_results = self.chromadb_service.collection.query(
+                    raw_results = collection.query(
                         query_embeddings=[entity_embedding],
                         n_results=top_k * 2,
                         where={"kb_id": knowledge_base_id},

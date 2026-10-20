@@ -3,55 +3,20 @@ import re
 import json
 import shutil
 import time
-import subprocess
 import tempfile
 import uuid
+import zipfile
+import requests
+from urllib.parse import quote
 from datetime import datetime, timezone
 from typing import Dict, Any, Callable, Optional, List
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
-_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-os.environ["TEMP"] = os.path.join(_BASE_DIR, "temp")
-os.environ["TMP"] = os.path.join(_BASE_DIR, "temp")
-
-_models_base = os.path.join(_BASE_DIR, 'models', 'models--opendatalab--PDF-Extract-Kit-1.0')
-_ref_path = os.path.join(_models_base, 'refs', 'main')
-_snapshot = open(_ref_path).read().strip() if os.path.exists(_ref_path) else 'd1336ee3c2975a8b26c4b09ff39dc6b593d34141'
-_snapshot_dir = os.path.join(_models_base, 'snapshots', _snapshot)
-_mineru_config = {
-    'models-dir': {
-        'pipeline': _snapshot_dir
-    }
-}
-_mineru_config_path = os.path.join(_BASE_DIR, 'mineru.json')
-with open(_mineru_config_path, 'w', encoding='utf-8') as _f:
-    json.dump(_mineru_config, _f, ensure_ascii=False, indent=2)
-
-os.environ['MINERU_TOOLS_CONFIG_JSON'] = _mineru_config_path
-os.environ['MINERU_MODEL_SOURCE'] = 'local'
-os.environ['HF_HUB_CACHE'] = os.path.join(_BASE_DIR, 'models')
-
 from config import config
 from utils.logger import logger
 from utils.rag_tokenizer import RagTokenizer
-
-from mineru.cli.common import read_fn, convert_pdf_bytes_to_bytes
-from mineru.utils.enum_class import MakeMode
-from mineru.utils.model_utils import clean_memory
-from mineru.data.data_reader_writer import FileBasedDataWriter
-from mineru.backend.pipeline.pipeline_analyze import doc_analyze_streaming as pipeline_doc_analyze_streaming
-from mineru.backend.pipeline.pipeline_middle_json_mkcontent import union_make as pipeline_union_make
-from mineru.backend.vlm.vlm_analyze import doc_analyze as vlm_doc_analyze
-from mineru.backend.vlm.vlm_middle_json_mkcontent import union_make as vlm_union_make
-from mineru.backend.hybrid.hybrid_analyze import doc_analyze as hybrid_doc_analyze
-
-from mineru.backend.office.docx_analyze import office_docx_analyze
-from mineru.backend.office.pptx_analyze import office_pptx_analyze
-from mineru.backend.office.xlsx_analyze import office_xlsx_analyze
-from mineru.backend.office.office_middle_json_mkcontent import union_make as office_union_make
 
 try:
     from services.chromadb_service import ChromaDBService
@@ -68,11 +33,17 @@ LOCAL_STORAGE_ROOT = r"D:\pengpengRAG\backend\v1\file_analysis\uploads"
 LOCAL_IMAGE_DIR = os.path.join(LOCAL_STORAGE_ROOT, "image-minIO")
 IMAGE_URL_PREFIX = "http://localhost:8000/uploads/image-minIO"
 
-_NATIVE_OFFICE_EXTS = {".docx", ".pptx", ".xlsx"}
-_LEGACY_OFFICE_EXTS = {".doc", ".ppt", ".xls", ".html"}
-_PLAIN_TEXT_EXTS = {".txt", ".md"}
+# MinerU API 直接支持的文件格式
+_MINERU_API_SUPPORTED_EXTS = {
+    ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx",
+    ".png", ".jpg", ".jpeg", ".jp2", ".webp", ".gif", ".bmp",
+}
+_HTML_EXTS = {".html", ".htm"}
+# 直接读取文本内容的格式（不走 LibreOffice / MinerU）
+_DIRECT_TEXT_EXTS = {".md", ".txt"}
 
-PLAIN_TEXT_CHUNK_SIZE = 512
+# 支持的解析引擎（供路由层使用）
+SUPPORTED_ENGINES = ("pipeline", "vlm")
 
 
 @dataclass
@@ -116,9 +87,57 @@ def _tokenize(text: str) -> str:
         return text
 
 
+def _count_tokens(text: str) -> int:
+    """统计文本的 token 数（基于分词结果的词数）。"""
+    tks = _tokenize(text)
+    return len(tks.split()) if tks else 0
+
+
+def _split_text_by_token(text: str, max_tokens: int = 512) -> List[str]:
+    """将超过 max_tokens 的文本按句子边界强制切分为多段。"""
+    if _count_tokens(text) <= max_tokens:
+        return [text]
+
+    # 按句子边界切分（中英文句号、换行）
+    sentences = re.split(r'(?<=[。！？\n.!?])', text)
+    segments = []
+    current_segment = ""
+
+    for sentence in sentences:
+        if not sentence:
+            continue
+        candidate = current_segment + sentence
+        if _count_tokens(candidate) > max_tokens and current_segment:
+            segments.append(current_segment.strip())
+            current_segment = sentence
+        else:
+            current_segment = candidate
+
+    # 处理剩余内容
+    if current_segment.strip():
+        # 如果最后一段仍然超过限制，按字符硬切
+        if _count_tokens(current_segment) > max_tokens:
+            words = current_segment.split()
+            buf = []
+            for w in words:
+                buf.append(w)
+                if _count_tokens(" ".join(buf)) > max_tokens:
+                    buf.pop()
+                    if buf:
+                        segments.append(" ".join(buf))
+                    buf = [w]
+            if buf:
+                segments.append(" ".join(buf))
+        else:
+            segments.append(current_segment.strip())
+
+    return segments if segments else [text]
+
+
 def _content_list_to_chunks(
     content_list: List[Dict[str, Any]],
     doc_name: str = "",
+    chunk_token_num: int = 512,
 ) -> List[Dict[str, Any]]:
     title_tks = _tokenize(doc_name) if doc_name else ""
     chunks = []
@@ -151,266 +170,28 @@ def _content_list_to_chunks(
         if not content:
             continue
 
-        content_tks = _tokenize(content)
-        chunks.append({
-            "content":         content,
-            "content_ltks":    content_tks,
-            "content_sm_ltks": content_tks,
-            "title_tks":       title_tks,
-            "title_sm_tks":    title_tks,
-            "type":            chunk_type,
-            "page_idx":        item.get("page_idx", 0),
-            "bbox":            item.get("bbox", [0, 0, 0, 0]),
-            "img_id":          "",
-        })
+        # 超过 token 限制则强制切分
+        segments = _split_text_by_token(content, chunk_token_num)
 
-    return chunks
+        for seg in segments:
+            content_tks = _tokenize(seg)
+            chunks.append({
+                "content":         seg,
+                "content_ltks":    content_tks,
+                "content_sm_ltks": content_tks,
+                "title_tks":       title_tks,
+                "title_sm_tks":    title_tks,
+                "type":            chunk_type,
+                "page_idx":        item.get("page_idx", 0),
+                "bbox":            item.get("bbox", [0, 0, 0, 0]),
+                "img_id":          "",
+            })
 
-
-def _estimate_tokens(text: str) -> int:
-    count = 0
-    for char in text:
-        if '一' <= char <= '鿿' or '㐀' <= char <= '䶿':
-            count += 1
-        elif char in (' ', '\t', '\n'):
-            continue
-        elif char.isascii() and char.isalpha():
-            count += 0.25
-        else:
-            count += 0.5
-    return max(int(count), 1)
-
-
-def _split_text_by_tokens(text: str, max_tokens: int = PLAIN_TEXT_CHUNK_SIZE) -> List[str]:
-    paragraphs = re.split(r'\n{2,}', text)
-    chunks = []
-    current_chunk = ""
-
-    for para in paragraphs:
-        para = para.strip()
-        if not para:
-            continue
-
-        para_tokens = _estimate_tokens(para)
-
-        if para_tokens > max_tokens:
-            if current_chunk:
-                chunks.append(current_chunk)
-                current_chunk = ""
-            sentences = re.split(r'(?<=[。！？.!?\n])', para)
-            for sent in sentences:
-                sent = sent.strip()
-                if not sent:
-                    continue
-                if _estimate_tokens(current_chunk + "\n" + sent if current_chunk else sent) <= max_tokens:
-                    current_chunk = current_chunk + "\n" + sent if current_chunk else sent
-                else:
-                    if current_chunk:
-                        chunks.append(current_chunk)
-                    current_chunk = sent
-        elif _estimate_tokens(current_chunk + "\n\n" + para if current_chunk else para) <= max_tokens:
-            current_chunk = current_chunk + "\n\n" + para if current_chunk else para
-        else:
-            if current_chunk:
-                chunks.append(current_chunk)
-            current_chunk = para
-
-    if current_chunk:
-        chunks.append(current_chunk)
-
-    return chunks
-
-
-def _split_markdown_by_heading(text: str, max_tokens: int = PLAIN_TEXT_CHUNK_SIZE) -> List[str]:
-    sections = re.split(r'(?=^#{1,6}\s)', text, flags=re.MULTILINE)
-
-    merged_sections = []
-    for section in sections:
-        section = section.strip()
-        if not section:
-            continue
-        if merged_sections and _estimate_tokens(merged_sections[-1] + "\n\n" + section) <= max_tokens:
-            merged_sections[-1] = merged_sections[-1] + "\n\n" + section
-        else:
-            merged_sections.append(section)
-
-    chunks = []
-    for section in merged_sections:
-        if _estimate_tokens(section) <= max_tokens:
-            chunks.append(section)
-        else:
-            sub_chunks = _split_text_by_tokens(section, max_tokens)
-            chunks.extend(sub_chunks)
-
-    return chunks
-
-
-def _parse_plain_text_to_chunks(file_path: str, doc_name: str = "") -> List[Dict[str, Any]]:
-    encodings = ['utf-8', 'gbk', 'gb2312', 'utf-16', 'latin-1']
-    text = None
-    for enc in encodings:
-        try:
-            with open(file_path, 'r', encoding=enc) as f:
-                text = f.read()
-            break
-        except (UnicodeDecodeError, UnicodeError):
-            continue
-
-    if text is None:
-        raise ValueError(f"无法读取文件，尝试的编码: {encodings}")
-
-    text = text.strip()
-    if not text:
-        return []
-
-    title_tks = _tokenize(doc_name) if doc_name else ""
-    ext = os.path.splitext(file_path)[1].lower()
-    if ext == ".md":
-        text_chunks = _split_markdown_by_heading(text, PLAIN_TEXT_CHUNK_SIZE)
-    else:
-        text_chunks = _split_text_by_tokens(text, PLAIN_TEXT_CHUNK_SIZE)
-
-    chunks = []
-    for chunk_text in text_chunks:
-        content = _normalize_content(chunk_text, "text")
-        if not content:
-            continue
-        content_tks = _tokenize(content)
-        chunks.append({
-            "content":         content,
-            "content_ltks":    content_tks,
-            "content_sm_ltks": content_tks,
-            "title_tks":       title_tks,
-            "title_sm_tks":    title_tks,
-            "type":            "text",
-            "page_idx":        0,
-            "bbox":            [0, 0, 0, 0],
-            "img_id":          "",
-        })
-
-    return chunks
-
-
-def _parse_by_pipeline(file_path: str, temp_image_dir: str) -> tuple:
-    logger.info("[Parser-INFO] 使用 pipeline 引擎")
-    pdf_bytes = read_fn(file_path)
-    pdf_bytes_pages = convert_pdf_bytes_to_bytes(pdf_bytes)
-
-    image_writer = FileBasedDataWriter(temp_image_dir)
-
-    result_holder = {}
-
-    def on_doc_ready(doc_index, model_list, middle_json, ocr_enable):
-        result_holder['middle_json'] = middle_json
-
-    pipeline_doc_analyze_streaming(
-        [pdf_bytes_pages],
-        [image_writer],
-        ["ch"],
-        on_doc_ready,
-        formula_enable=True,
-        table_enable=True,
+    logger.info(
+        f"[Parser-INFO] content_list → chunks: {len(content_list)} 条 → {len(chunks)} 个 chunks "
+        f"(token 上限={chunk_token_num})"
     )
-
-    middle_json = result_holder.get('middle_json', {})
-    if not middle_json:
-        return {}, []
-
-    image_dir    = os.path.basename(temp_image_dir)
-    content_list = pipeline_union_make(middle_json["pdf_info"], MakeMode.CONTENT_LIST, image_dir)
-    return middle_json, content_list
-
-
-def _parse_by_vlm(file_path: str, temp_image_dir: str) -> tuple:
-    logger.info("[Parser-INFO] 使用 vlm 引擎")
-    pdf_bytes = read_fn(file_path)
-    pdf_bytes_pages = convert_pdf_bytes_to_bytes(pdf_bytes)
-
-    image_writer = FileBasedDataWriter(temp_image_dir)
-    middle_json, _ = vlm_doc_analyze(
-        pdf_bytes_pages,
-        image_writer=image_writer,
-        backend="transformers",
-    )
-    image_dir    = os.path.basename(temp_image_dir)
-    content_list = vlm_union_make(middle_json["pdf_info"], MakeMode.CONTENT_LIST, image_dir)
-    return middle_json, content_list
-
-
-def _parse_by_hybrid(file_path: str, temp_image_dir: str) -> tuple:
-    logger.info("[Parser-INFO] 使用 hybrid 引擎")
-    pdf_bytes = read_fn(file_path)
-    pdf_bytes_pages = convert_pdf_bytes_to_bytes(pdf_bytes)
-
-    image_writer = FileBasedDataWriter(temp_image_dir)
-    middle_json, _, _ = hybrid_doc_analyze(
-        pdf_bytes_pages,
-        image_writer=image_writer,
-        backend="transformers",
-        parse_method="auto",
-        language="ch",
-        inline_formula_enable=True,
-    )
-    image_dir    = os.path.basename(temp_image_dir)
-    content_list = vlm_union_make(middle_json["pdf_info"], MakeMode.CONTENT_LIST, image_dir)
-    return middle_json, content_list
-
-
-def _parse_office_native(file_path: str, temp_image_dir: str) -> tuple:
-    ext = os.path.splitext(file_path)[1].lower()
-    logger.info(f"[Parser-INFO] 使用 MinerU 原生 Office 解析引擎: {ext}")
-
-    with open(file_path, "rb") as f:
-        file_bytes = f.read()
-
-    image_writer = FileBasedDataWriter(temp_image_dir)
-
-    if ext == ".docx":
-        middle_json, _ = office_docx_analyze(file_bytes, image_writer=image_writer)
-    elif ext == ".pptx":
-        middle_json, _ = office_pptx_analyze(file_bytes, image_writer=image_writer)
-    elif ext == ".xlsx":
-        middle_json, _ = office_xlsx_analyze(file_bytes, image_writer=image_writer)
-    else:
-        raise ValueError(f"不支持的原生 Office 格式: {ext}")
-
-    image_dir = os.path.basename(temp_image_dir)
-    content_list = office_union_make(middle_json["pdf_info"], MakeMode.CONTENT_LIST, image_dir)
-    return middle_json, content_list
-
-
-SUPPORTED_ENGINES = ("pipeline", "vlm", "hybrid")
-
-
-def _parse_pdf(file_path: str, temp_image_dir: str) -> tuple:
-    engine = config.mineru.PARSE_ENGINE or os.getenv("MINERU_PARSE_ENGINE", "pipeline")
-    engine = engine.lower().strip()
-    logger.info(f"[Parser-INFO] 当前解析引擎: {engine}")
-
-    if engine == "vlm":
-        return _parse_by_vlm(file_path, temp_image_dir)
-    elif engine == "hybrid":
-        return _parse_by_hybrid(file_path, temp_image_dir)
-    else:
-        return _parse_by_pipeline(file_path, temp_image_dir)
-
-
-def _convert_to_pdf_with_libreoffice(file_path: str, out_dir: str) -> str:
-    cmd = [
-        "soffice", "--headless", "--norestore", "--invisible",
-        "--convert-to", "pdf",
-        "--outdir", out_dir,
-        file_path,
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    if result.returncode != 0:
-        raise RuntimeError(f"LibreOffice 转换失败: {result.stderr}")
-
-    base_name = os.path.splitext(os.path.basename(file_path))[0]
-    pdf_path  = os.path.join(out_dir, f"{base_name}.pdf")
-    if not os.path.exists(pdf_path):
-        raise FileNotFoundError(f"LibreOffice 转换后未找到 PDF: {pdf_path}")
-    return pdf_path
+    return chunks
 
 
 class BaseParser(ABC):
@@ -424,7 +205,9 @@ class BaseParser(ABC):
         pass
 
 
-class MinerUParser(BaseParser):
+class DirectTextParser(BaseParser):
+    """直接读取 txt/md 文件内容，按段落和 token 上限切分为 chunks。
+    不走 LibreOffice / MinerU API，速度快且无外部依赖。"""
 
     def parse(
         self,
@@ -436,102 +219,402 @@ class MinerUParser(BaseParser):
             raise FileNotFoundError(f"File not found: {file_path}")
 
         start_time = time.time()
-        ext        = os.path.splitext(file_path)[1].lower()
+        filename = os.path.basename(file_path)
+        doc_name = os.path.splitext(filename)[0]
+        ext = os.path.splitext(file_path)[1].lower()
 
         if progress_callback:
             progress_callback(10)
 
-        temp_dir       = tempfile.mkdtemp(prefix="mineru_")
-        temp_image_dir = os.path.join(temp_dir, "images")
-        os.makedirs(temp_image_dir, exist_ok=True)
+        # 1. 读取文件内容（自动检测编码）
+        text = self._read_text_file(file_path)
+        logger.info(f"[DirectTextParser] 读取文件完成: {filename}, 字符数={len(text)}")
 
-        try:
-            if ext in _PLAIN_TEXT_EXTS:
-                logger.info(f"[Parser-INFO] {ext} 文件直接按 token 切分，chunk_size={PLAIN_TEXT_CHUNK_SIZE}")
-                if progress_callback:
-                    progress_callback(30)
-                doc_name = os.path.splitext(os.path.basename(file_path))[0]
-                chunks = _parse_plain_text_to_chunks(file_path, doc_name=doc_name)
-                processing_time = time.time() - start_time
+        if progress_callback:
+            progress_callback(30)
 
-                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                    full_text = f.read()
+        # 2. 按段落切分文本
+        chunk_token_num = (options or {}).get("chunk_token_num", 512)
+        paragraphs = self._split_into_paragraphs(text, ext)
 
-                metadata = DocumentMetadata(
-                    title=doc_name,
-                    author="",
-                    pages=1,
-                    word_count=len(full_text),
-                    file_type=ext,
-                    has_images=False,
-                    has_tables=False,
-                    has_formulas=False,
-                    processing_time=processing_time,
-                )
+        if progress_callback:
+            progress_callback(50)
 
-                if progress_callback:
-                    progress_callback(100)
+        # 3. 将段落转为 chunks（超长段落会被进一步切分）
+        title_tks = _tokenize(doc_name) if doc_name else ""
+        chunks = []
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            # 对每个段落按 token 上限切分
+            segments = _split_text_by_token(para, chunk_token_num)
+            for seg in segments:
+                content_tks = _tokenize(seg)
+                chunks.append({
+                    "content":         seg,
+                    "content_ltks":    content_tks,
+                    "content_sm_ltks": content_tks,
+                    "title_tks":       title_tks,
+                    "title_sm_tks":    title_tks,
+                    "type":            "text",
+                    "page_idx":        0,
+                    "bbox":            [0, 0, 0, 0],
+                    "img_id":          "",
+                })
 
-                return ParseResult(
-                    text=full_text,
-                    markdown="",
-                    middle_content={},
-                    metadata=metadata,
-                    chunks=chunks,
-                    raw_output={"content_list": [], "middle_content": {}, "temp_image_dir": ""},
-                )
+        logger.info(
+            f"[DirectTextParser] 切分完成: {len(paragraphs)} 段 → {len(chunks)} 个 chunks "
+            f"(token 上限={chunk_token_num})"
+        )
 
-            elif ext in _NATIVE_OFFICE_EXTS:
-                if progress_callback:
-                    progress_callback(30)
-                middle_json, content_list = _parse_office_native(file_path, temp_image_dir)
-            elif ext in _LEGACY_OFFICE_EXTS:
-                logger.info(f"[Parser-INFO] {ext} 文件先用 LibreOffice 转为 PDF")
-                pdf_path = _convert_to_pdf_with_libreoffice(file_path, temp_dir)
-                if progress_callback:
-                    progress_callback(30)
-                middle_json, content_list = _parse_pdf(pdf_path, temp_image_dir)
-            else:
-                if progress_callback:
-                    progress_callback(30)
-                middle_json, content_list = _parse_pdf(file_path, temp_image_dir)
+        if progress_callback:
+            progress_callback(80)
 
-            if progress_callback:
-                progress_callback(70)
-
-        except Exception as e:
-            logger.error(f"[Parser-ERROR] 解析失败: {e}")
-            raise
-
+        # 4. 构造元数据
         processing_time = time.time() - start_time
-        doc_name        = os.path.splitext(os.path.basename(file_path))[0]
-        chunks          = _content_list_to_chunks(content_list, doc_name=doc_name)
-        metadata        = self._extract_metadata(file_path, middle_json, content_list, processing_time)
+        # 提取标题：取第一行非空文本
+        title = doc_name
+        first_line = text.strip().split("\n")[0].strip() if text.strip() else ""
+        if first_line:
+            # 去掉 markdown 标题符号
+            clean_title = re.sub(r'^#+\s*', '', first_line).strip()
+            if clean_title:
+                title = clean_title[:80]
+
+        metadata = DocumentMetadata(
+            title=title,
+            author="",
+            pages=1,
+            word_count=len(text),
+            file_type=ext,
+            has_images=False,
+            has_tables=False,
+            has_formulas=False,
+            processing_time=processing_time,
+        )
+
+        if progress_callback:
+            progress_callback(100)
+
+        # markdown 内容：对 .md 文件直接用原文，对 .txt 文件用原文
+        markdown_content = text if ext == ".md" else ""
+
+        return ParseResult(
+            text=text,
+            markdown=markdown_content,
+            middle_content={},
+            metadata=metadata,
+            chunks=chunks,
+            raw_output={
+                "content_list": [{"type": "text", "text": p} for p in paragraphs if p.strip()],
+                "middle_content": {},
+                "temp_image_dir": "",
+            },
+        )
+
+    def _read_text_file(self, file_path: str) -> str:
+        """读取文本文件，尝试多种编码。"""
+        encodings = ["utf-8", "utf-8-sig", "gbk", "gb2312", "latin-1"]
+        for enc in encodings:
+            try:
+                with open(file_path, "r", encoding=enc) as f:
+                    return f.read()
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+        # 最后兜底用 latin-1（不会抛异常）
+        with open(file_path, "r", encoding="latin-1") as f:
+            return f.read()
+
+    def _split_into_paragraphs(self, text: str, ext: str) -> List[str]:
+        """按段落切分文本。
+        - md 文件：按标题（# ## ###）和双换行切分
+        - txt 文件：按双换行或单换行（连续空行）切分
+        合并过短的段落，避免产生过多碎片 chunk。
+        """
+        if ext == ".md":
+            # Markdown：按标题行切分，保留标题作为段落开头
+            parts = re.split(r'(?=^#{1,6}\s)', text, flags=re.MULTILINE)
+            # 对非标题部分再按双换行切分
+            paragraphs = []
+            for part in parts:
+                if not part.strip():
+                    continue
+                sub_parts = re.split(r'\n\s*\n', part)
+                paragraphs.extend(sub_parts)
+        else:
+            # 纯文本：按双换行切分
+            paragraphs = re.split(r'\n\s*\n', text)
+
+        # 合并过短的段落（少于 50 字符的段落与下一段合并）
+        merged = []
+        buffer = ""
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            if buffer:
+                buffer = buffer + "\n" + para
+            else:
+                buffer = para
+            # 如果当前 buffer 足够长，输出
+            if len(buffer) >= 50:
+                merged.append(buffer)
+                buffer = ""
+        # 剩余内容
+        if buffer:
+            if merged:
+                merged[-1] = merged[-1] + "\n" + buffer
+            else:
+                merged.append(buffer)
+
+        return merged
+
+
+class MinerUAPIParser(BaseParser):
+    """通过 MinerU 云端 API 进行文档解析，替代本地 MinerU 库调用。"""
+
+    def __init__(self):
+        self.api_base_url = config.mineru.API_BASE_URL
+        self.api_token = config.mineru.API_TOKEN
+        self.file_url_prefix = config.mineru.FILE_URL_PREFIX
+        self.poll_interval = config.mineru.POLL_INTERVAL
+        self.poll_timeout = config.mineru.POLL_TIMEOUT
+        self.direct_text_parser = DirectTextParser()
+
+    def parse(
+        self,
+        file_path: str,
+        options: Dict[str, Any] = None,
+        progress_callback: Callable[[int], None] = None,
+    ) -> ParseResult:
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        ext = os.path.splitext(file_path)[1].lower()
+
+        # txt/md 文件：直接读取文本内容，不走 LibreOffice / MinerU API
+        if ext in _DIRECT_TEXT_EXTS:
+            return self.direct_text_parser.parse(file_path, options, progress_callback)
+
+        # MinerU API 直接支持的格式（含未知格式，尝试直接提交）
+        if ext in _MINERU_API_SUPPORTED_EXTS or ext in _HTML_EXTS:
+            return self._parse_via_api(file_path, ext, options, progress_callback)
+
+        # 未知格式也尝试通过 MinerU API 解析
+        logger.warning(f"[Parser-WARNING] 文件格式 {ext} 不在已知列表中，尝试直接提交 MinerU API")
+        return self._parse_via_api(file_path, ext, options, progress_callback)
+
+    def _parse_via_api(
+        self,
+        file_path: str,
+        ext: str,
+        options: Dict[str, Any] = None,
+        progress_callback: Callable[[int], None] = None,
+    ) -> ParseResult:
+        """通过 MinerU 云端 API 解析文档。"""
+        start_time = time.time()
+        filename = os.path.basename(file_path)
+
+        if progress_callback:
+            progress_callback(10)
+
+        # 1. 构造公网 URL（对文件名进行 URL 编码，处理中文等特殊字符）
+        encoded_filename = quote(filename, safe="")
+        file_url = f"{self.file_url_prefix}/{encoded_filename}"
+        logger.info(f"[Parser-INFO] 文件公网 URL: {file_url}")
+
+        # 2. 确定 model_version
+        if ext in _HTML_EXTS:
+            model_version = "MinerU-HTML"
+        else:
+            engine = config.mineru.PARSE_ENGINE or "pipeline"
+            model_version = "pipeline" if engine == "pipeline" else "vlm"
+
+        # 3. 创建解析任务
+        task_id = self._create_task(file_url, model_version, options)
+        logger.info(f"[Parser-INFO] 创建 MinerU API 任务成功: task_id={task_id}, model={model_version}")
+
+        if progress_callback:
+            progress_callback(30)
+
+        # 4. 轮询等待任务完成
+        result = self._poll_task(task_id, progress_callback)
+        logger.info(f"[Parser-INFO] MinerU API 任务完成: task_id={task_id}")
+
+        if progress_callback:
+            progress_callback(70)
+
+        # 5. 下载并解压 zip
+        zip_url = result.get("full_zip_url", "")
+        if not zip_url:
+            raise RuntimeError(f"API 返回结果中缺少 full_zip_url: {result}")
+
+        content_list, markdown = self._download_and_extract(zip_url)
+        logger.info(f"[Parser-INFO] 下载解压完成，content_list 条目数: {len(content_list)}")
+
+        # 6. 转为 chunks（超过 token 上限的 chunk 会被强制切分）
+        doc_name = os.path.splitext(filename)[0]
+        chunk_token_num = (options or {}).get("chunk_token_num", 512)
+        chunks = _content_list_to_chunks(content_list, doc_name=doc_name, chunk_token_num=chunk_token_num)
+
+        # 7. 构造元数据
+        processing_time = time.time() - start_time
+        metadata = self._extract_metadata(file_path, content_list, processing_time)
 
         if progress_callback:
             progress_callback(100)
 
         return ParseResult(
-            text=self._to_plain_text(middle_json),
-            markdown="",
-            middle_content=middle_json,
+            text=self._content_list_to_text(content_list),
+            markdown=markdown,
+            middle_content={},
             metadata=metadata,
             chunks=chunks,
             raw_output={
-                "content_list": content_list, 
-                "middle_content": middle_json,
-                "temp_image_dir": temp_image_dir,
+                "content_list": content_list,
+                "middle_content": {},
+                "temp_image_dir": "",
             },
         )
+
+    def _create_task(self, file_url: str, model_version: str, options: Dict[str, Any] = None) -> str:
+        """调用 MinerU API 创建解析任务。"""
+        url = f"{self.api_base_url}/extract/task"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_token}",
+        }
+
+        payload = {
+            "url": file_url,
+            "model_version": model_version,
+        }
+
+        # is_ocr / enable_formula / enable_table / language 仅对 pipeline/vlm 有效
+        if model_version in ("pipeline", "vlm"):
+            payload["is_ocr"] = config.mineru.ENABLE_OCR
+            payload["enable_formula"] = True
+            payload["enable_table"] = True
+            payload["language"] = "ch"
+
+        logger.info(f"[Parser-INFO] 创建任务请求: {url}, payload={payload}")
+        resp = requests.post(url, json=payload, headers=headers, timeout=30)
+
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"MinerU API 创建任务失败: status={resp.status_code}, body={resp.text}"
+            )
+
+        data = resp.json()
+        # API 返回格式: {"code": 0, "msg": "ok", "data": {"task_id": "xxx"}}
+        if data.get("code") != 0:
+            raise RuntimeError(f"MinerU API 创建任务错误: {data}")
+
+        task_id = data.get("data", {}).get("task_id", "")
+        if not task_id:
+            raise RuntimeError(f"MinerU API 返回中缺少 task_id: {data}")
+
+        return task_id
+
+    def _poll_task(self, task_id: str, progress_callback: Callable[[int], None] = None) -> Dict[str, Any]:
+        """轮询任务状态直到完成或超时。"""
+        url = f"{self.api_base_url}/extract/task/{task_id}"
+        headers = {
+            "Authorization": f"Bearer {self.api_token}",
+        }
+
+        elapsed = 0
+        while elapsed < self.poll_timeout:
+            time.sleep(self.poll_interval)
+            elapsed += self.poll_interval
+
+            resp = requests.get(url, headers=headers, timeout=30)
+            if resp.status_code != 200:
+                logger.warning(f"[Parser-WARNING] 轮询请求失败: status={resp.status_code}")
+                continue
+
+            data = resp.json()
+            task_data = data.get("data", {})
+            status = task_data.get("state", "")
+
+            logger.info(f"[Parser-INFO] 任务状态: {status} (elapsed={elapsed}s)")
+
+            if status == "done":
+                return task_data
+            elif status in ("failed", "error"):
+                raise RuntimeError(f"MinerU API 任务失败: {task_data}")
+
+            # 更新进度（30-70 之间线性映射）
+            if progress_callback and self.poll_timeout > 0:
+                progress = 30 + int((elapsed / self.poll_timeout) * 40)
+                progress = min(progress, 69)
+                progress_callback(progress)
+
+        raise TimeoutError(
+            f"MinerU API 任务超时: task_id={task_id}, timeout={self.poll_timeout}s"
+        )
+
+    def _download_and_extract(self, zip_url: str) -> tuple:
+        """下载 zip 文件并提取 content_list.json 和 full.md。"""
+        temp_dir = tempfile.mkdtemp(prefix="mineru_api_")
+        zip_path = os.path.join(temp_dir, "result.zip")
+
+        try:
+            # 下载 zip
+            logger.info(f"[Parser-INFO] 下载结果 zip: {zip_url}")
+            resp = requests.get(zip_url, timeout=120, stream=True)
+            resp.raise_for_status()
+
+            with open(zip_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
+            # 解压
+            extract_dir = os.path.join(temp_dir, "extracted")
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(extract_dir)
+
+            # 查找 *_content_list.json
+            content_list = []
+            markdown = ""
+
+            for root, dirs, files in os.walk(extract_dir):
+                for fname in files:
+                    fpath = os.path.join(root, fname)
+                    if fname.endswith("_content_list.json") or fname == "content_list.json":
+                        with open(fpath, "r", encoding="utf-8") as f:
+                            content_list = json.load(f)
+                        logger.info(f"[Parser-INFO] 找到 content_list: {fname}")
+                    elif fname == "full.md":
+                        with open(fpath, "r", encoding="utf-8") as f:
+                            markdown = f.read()
+                        logger.info(f"[Parser-INFO] 找到 full.md")
+
+            if not content_list:
+                # 尝试查找任何 json 文件作为 content_list
+                for root, dirs, files in os.walk(extract_dir):
+                    for fname in files:
+                        if fname.endswith(".json") and "content_list" in fname:
+                            fpath = os.path.join(root, fname)
+                            with open(fpath, "r", encoding="utf-8") as f:
+                                content_list = json.load(f)
+                            logger.info(f"[Parser-INFO] 备选 content_list: {fname}")
+                            break
+
+            return content_list, markdown
+
+        finally:
+            # 清理临时目录
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def _extract_metadata(
         self,
         file_path: str,
-        middle_json: dict,
         content_list: List[Dict],
         processing_time: float,
     ) -> DocumentMetadata:
-        pages  = {item["page_idx"] for item in content_list if "page_idx" in item}
+        pages = {item["page_idx"] for item in content_list if "page_idx" in item}
         images = {item.get("img_path") for item in content_list if item.get("type") == "image" and item.get("img_path")}
 
         title = os.path.splitext(os.path.basename(file_path))[0]
@@ -554,32 +637,27 @@ class MinerUParser(BaseParser):
             word_count=word_count,
             file_type=os.path.splitext(file_path)[1].lower(),
             has_images=bool(images),
-            has_tables=any(i.get("type") == "table"    for i in content_list),
+            has_tables=any(i.get("type") == "table" for i in content_list),
             has_formulas=any(i.get("type") == "equation" for i in content_list),
             processing_time=processing_time,
         )
 
-    def _to_plain_text(self, middle_json: dict) -> str:
+    def _content_list_to_text(self, content_list: List[Dict]) -> str:
+        """将 content_list 转为纯文本。"""
         lines = []
-        for page in middle_json.get("pdf_info", []):
-            for block in page.get("preproc_blocks", []):
-                for line in block.get("lines", []):
-                    for span in line.get("spans", []):
-                        text = span.get("content", "").strip()
-                        if text:
-                            lines.append(text)
-            for block in page.get("para_blocks", []):
-                for line in block.get("lines", []):
-                    for span in line.get("spans", []):
-                        text = span.get("content", "").strip()
-                        if text:
-                            lines.append(text)
+        for item in content_list:
+            text = item.get("text", "").strip()
+            if text:
+                lines.append(text)
+            table_body = item.get("table_body", "").strip()
+            if table_body:
+                lines.append(table_body)
         return "\n".join(lines)
 
 
 class DocumentParser:
     def __init__(self):
-        self.mineru_parser = MinerUParser()
+        self.mineru_parser = MinerUAPIParser()
         self._ensure_image_directory()
 
     def _ensure_image_directory(self):
@@ -666,6 +744,10 @@ class DocumentParser:
             if os.path.isdir(_temp_dir):
                 shutil.rmtree(_temp_dir, ignore_errors=True)
 
+        # 根据文件类型确定 parser 标识
+        ext = os.path.splitext(file_path)[1].lower()
+        parser_name = "direct_text" if ext in _DIRECT_TEXT_EXTS else "mineru_api"
+
         return {
             "text":           result.text,
             "markdown":       result.markdown,
@@ -682,7 +764,7 @@ class DocumentParser:
                 "has_tables":      result.metadata.has_tables,
                 "has_formulas":    result.metadata.has_formulas,
                 "processing_time": result.metadata.processing_time,
-                "parser":          "mineru_local",
+                "parser":          parser_name,
                 "image_count":     image_count,
             },
         }
@@ -759,10 +841,6 @@ class DocumentProcessor:
 
         raw_chunks = parse_result.get("chunks", [])
         doc_name = os.path.splitext(os.path.basename(file_path))[0]
-
-        chunk_merger = (options or {}).get("chunk_merger")
-        if callable(chunk_merger):
-            raw_chunks = chunk_merger(raw_chunks)
 
         chunks = self.perform_parse(raw_chunks, file_id, kb_id, doc_name)
 

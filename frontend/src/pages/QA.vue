@@ -122,12 +122,12 @@
                         <div class="popup-chunk-header">
                           <span class="popup-chunk-idx">段落 {{ si + 1 }}</span>
                           <span v-if="src.score" class="popup-chunk-score">{{ (src.score * 100).toFixed(0) }}%</span>
-                          <span v-if="src.page_idx" class="popup-chunk-page">P{{ src.page_idx }}</span>
+                          <span v-if="src.page_num_int && src.page_num_int.length" class="popup-chunk-page">P{{ src.page_num_int[0] }}</span>
                         </div>
-                        <div class="popup-chunk-text popup-chunk-table" v-if="src.content_type === 'table'" v-html="sanitizeHtml(src.content_preview)"></div>
-                        <div class="popup-chunk-text" v-else>{{ src.content_preview || '无内容' }}</div>
-                        <div v-if="src.img_url" class="popup-chunk-image">
-                          <img :src="src.img_url" alt="关联图片" loading="lazy" />
+                        <div v-if="src.content_html" class="popup-chunk-html" v-html="src.content_html"></div>
+                        <div v-else class="popup-chunk-text">{{ src.content_preview || '无内容' }}</div>
+                        <div v-if="src.img_id" class="popup-chunk-img">
+                          <img :src="`/api/uploads/image-minIO/${src.img_id}`" alt="参考图片" />
                         </div>
                       </div>
                     </div>
@@ -247,7 +247,6 @@ import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from
 import { knowledgeApi } from '../api/knowledge'
 import { streamAskWithConv, createConversation } from '../api/qa'
 import AnswerModeSelector from '../components/AnswerModeSelector.vue'
-import DOMPurify from 'dompurify'
 
 // -----------------------------------------------------------------------
 // 知识库
@@ -575,14 +574,6 @@ function formatContent(msg) {
   // 换行
   t = t.replace(/\n/g, '<br>')
   return t
-}
-
-function sanitizeHtml(html) {
-  if (!html) return ''
-  return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ['table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'colgroup', 'col', 'br', 'p', 'span', 'strong', 'em', 'b', 'i'],
-    ALLOWED_ATTR: ['colspan', 'rowspan', 'style', 'class'],
-  })
 }
 
 function formatTime(ts) {
@@ -1017,28 +1008,41 @@ onUnmounted(() => {
   line-height: 1.6;
   word-break: break-word;
 }
-.popup-chunk-table :deep(table) {
-  width: 100%;
+
+.popup-chunk-html {
+  font-size: 12px;
+  color: #1b4332;
+  line-height: 1.6;
+  word-break: break-word;
+  overflow-x: auto;
+}
+.popup-chunk-html table {
   border-collapse: collapse;
+  width: 100%;
   font-size: 11px;
   margin: 4px 0;
 }
-.popup-chunk-table :deep(th),
-.popup-chunk-table :deep(td) {
-  border: 1px solid rgba(168,230,207,0.5);
-  padding: 4px 6px;
+.popup-chunk-html table td,
+.popup-chunk-html table th {
+  border: 1px solid #b7e4c7;
+  padding: 4px 8px;
   text-align: left;
+  white-space: nowrap;
 }
-.popup-chunk-table :deep(th) {
-  background: rgba(168,230,207,0.2);
+.popup-chunk-html table tr:first-child td,
+.popup-chunk-html table th {
+  background: rgba(168,230,207,0.3);
   font-weight: 600;
 }
-.popup-chunk-image img {
+
+.popup-chunk-img {
+  margin-top: 6px;
+}
+.popup-chunk-img img {
   max-width: 100%;
   max-height: 200px;
   border-radius: 6px;
-  margin-top: 8px;
-  border: 1px solid rgba(168,230,207,0.3);
+  border: 1px solid rgba(168,230,207,0.4);
 }
 
 /* --- 输入区 --- */

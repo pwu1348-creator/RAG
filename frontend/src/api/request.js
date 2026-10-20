@@ -41,20 +41,21 @@ request.interceptors.response.use(
     return data
   },
   (error) => {
-    const { response } = error
+    const { response, config } = error
     
     if (response && response.data) {
       const backendMessage = response.data.message || response.data.msg || ''
+      // 登录接口的 401 不做跳转，让页面自行处理错误提示
+      const isLoginRequest = config && config.url && config.url.includes('/login')
       switch (response.status) {
         case 401:
-          // 如果是登录接口，不要重定向，而是返回错误信息
-          if (response.config?.url?.includes('/login')) {
+          if (isLoginRequest) {
             return Promise.reject(new Error(backendMessage || '账号或密码错误'))
           }
           const userStore = useUserStore()
           userStore.logout()
           window.location.href = '/login'
-          return Promise.reject(new Error(backendMessage || '未授权，请重新登录'))
+          break
         case 403:
           return Promise.reject(new Error(backendMessage || '没有权限访问该资源'))
         case 404:

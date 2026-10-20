@@ -54,6 +54,11 @@ class MinerUConfig:
     ENABLE_OCR: bool = True
     OCR_LANGUAGE: str = "ch_sim"
     PARSE_ENGINE: str = "pipeline"
+    API_TOKEN: str = ""
+    API_BASE_URL: str = "https://mineru.net/api/v4"
+    FILE_URL_PREFIX: str = "https://rag.zhou1028.cn/uploads"
+    POLL_INTERVAL: int = 5
+    POLL_TIMEOUT: int = 300
 
 
 @dataclass
@@ -137,6 +142,11 @@ class Config:
         self.parser.MAX_FILE_SIZE = int(os.getenv('MAX_FILE_SIZE_MB', self.parser.MAX_FILE_SIZE))
         
         self.mineru.PARSE_ENGINE = os.getenv('MINERU_PARSE_ENGINE', self.mineru.PARSE_ENGINE)
+        self.mineru.API_TOKEN = os.getenv('MINERU_API_TOKEN', self.mineru.API_TOKEN)
+        self.mineru.API_BASE_URL = os.getenv('MINERU_API_BASE_URL', self.mineru.API_BASE_URL)
+        self.mineru.FILE_URL_PREFIX = os.getenv('MINERU_FILE_URL_PREFIX', self.mineru.FILE_URL_PREFIX)
+        self.mineru.POLL_INTERVAL = int(os.getenv('MINERU_POLL_INTERVAL', self.mineru.POLL_INTERVAL))
+        self.mineru.POLL_TIMEOUT = int(os.getenv('MINERU_POLL_TIMEOUT', self.mineru.POLL_TIMEOUT))
         
         self.embedding.BASE_URL = os.getenv('EMBEDDING_BASE_URL', self.embedding.BASE_URL)
         self.embedding.API_KEY = os.getenv('EMBEDDING_API_KEY', self.embedding.API_KEY)

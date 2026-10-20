@@ -63,6 +63,20 @@ class ChromaDBService:
             logger.error(f"[ChromaDB-Search] 获取 collection 失败: {e}")
             raise
 
+    def invalidate_collection(self, tenant_id: str):
+        collection_name = self._get_collection_name(tenant_id)
+        self._collections.pop(collection_name, None)
+
+    def reload_client(self):
+        self._collections.clear()
+        self.client = chromadb.HttpClient(
+            host=config.chromadb.HOST,
+            port=config.chromadb.PORT
+        ) if config.chromadb.HOST else chromadb.PersistentClient(
+            path=config.chromadb.PERSIST_DIRECTORY
+        )
+        logger.info("[ChromaDB-Search] 客户端已重新加载")
+
     def search(
         self,
         tenant_id: str,

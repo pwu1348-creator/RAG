@@ -3,9 +3,8 @@ module.exports = {
     {
       name: 'parser-service',
       script: 'scripts/start-parser.js',
-      cwd: 'D:/pengpengRAG',
+      cwd: '/home/wsp/pengpengRAG',
       watch: false,
-      windowsHide: true,
       env: {
         PYTHONUNBUFFERED: '1'
       }
@@ -13,9 +12,8 @@ module.exports = {
     {
       name: 'qa-service',
       script: 'scripts/start-qa.js',
-      cwd: 'D:/pengpengRAG',
+      cwd: '/home/wsp/pengpengRAG',
       watch: false,
-      windowsHide: true,
       env: {
         PYTHONUNBUFFERED: '1'
       }
@@ -23,9 +21,8 @@ module.exports = {
     {
       name: 'frontend',
       script: 'scripts/start-frontend.js',
-      cwd: 'D:/pengpengRAG',
-      watch: false,
-      windowsHide: true
+      cwd: '/home/wsp/pengpengRAG',
+      watch: false
     }
   ]
 }

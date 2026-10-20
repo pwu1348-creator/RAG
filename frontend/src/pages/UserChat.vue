@@ -69,7 +69,7 @@
         <div class="topbar-left">
           <div class="user-topbar-avatar">
             <img v-if="userInfo.avatar_url" :src="userInfo.avatar_url" class="user-topbar-img" />
-            <span v-else class="avatar-text-default">用户</span>
+            <span v-else>用户</span>
           </div>
           <div>
             <div class="assistant-name">{{ assistantConfig.name || '智能助手' }}</div>
@@ -143,12 +143,12 @@
                     <div class="popup-chunk-header">
                       <span class="popup-chunk-idx">段落 {{ si + 1 }}</span>
                       <span v-if="src.score" class="popup-chunk-score">{{ (src.score * 100).toFixed(0) }}%</span>
-                      <span v-if="src.page_idx" class="popup-chunk-page">P{{ src.page_idx }}</span>
+                      <span v-if="src.page_num_int && src.page_num_int.length" class="popup-chunk-page">P{{ src.page_num_int[0] }}</span>
                     </div>
-                    <div class="popup-chunk-text popup-chunk-table" v-if="src.content_type === 'table'" v-html="sanitizeHtml(src.content_preview)"></div>
-                    <div class="popup-chunk-text" v-else>{{ src.content_preview || '无内容' }}</div>
-                    <div v-if="src.img_url" class="popup-chunk-image">
-                      <img :src="src.img_url" alt="关联图片" loading="lazy" />
+                    <div v-if="src.content_html" class="popup-chunk-html" v-html="src.content_html"></div>
+                    <div v-else class="popup-chunk-text">{{ src.content_preview || '无内容' }}</div>
+                    <div v-if="src.img_id" class="popup-chunk-img">
+                      <img :src="`/api/uploads/image-minIO/${src.img_id}`" alt="参考图片" />
                     </div>
                   </div>
                 </div>
@@ -270,7 +270,6 @@ import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { streamAskWithConv, createConversation, listConversations, deleteConversation } from '../api/qa'
 import AnswerModeSelector from '../components/AnswerModeSelector.vue'
-import DOMPurify from 'dompurify'
 import axios from 'axios'
 
 const router = useRouter()
@@ -303,34 +302,30 @@ async function loadKBList() {
       headers: { Authorization: `Bearer ${userToken()}` },
     })
     const allKBs = res.data?.data?.knowledge_bases || []
-    const currentUserId = String(userInfo.user_id || '')
+    const userId = userInfo.user_id
     const username = userInfo.username
+
+    // 读取部门数据，找出当前用户所在部门关联的知识库
     const deptRaw = localStorage.getItem('rag_departments')
     const depts = deptRaw ? JSON.parse(deptRaw) : []
+    // 找出包含当前用户的部门
     const userDepts = depts.filter(d => (d.memberUsernames || []).includes(username))
 
-    // 先过滤掉其他用户的个人知识库
-    const visibleKBs = allKBs.filter(kb => {
-      if (kb.owner_type === 'user') {
-        return String(kb.owner_id) === currentUserId
-      }
-      return true
-    })
-
-    if (userDepts.length === 0) {
-      kbList.value = visibleKBs
-    } else {
-      const allowedKbIds = new Set()
-      for (const d of userDepts) {
-        for (const id of (d.kbIds || [])) allowedKbIds.add(id)
-      }
-      const userDeptIds = new Set(userDepts.map(d => d.id))
-      kbList.value = visibleKBs.filter(kb =>
-        kb.owner_type === 'user' ||
-        allowedKbIds.has(kb.kb_id) ||
-        (kb.owner_type === 'department' && userDeptIds.has(String(kb.owner_id)))
-      )
+    // 收集所有部门关联的 kbId
+    const allowedKbIds = new Set()
+    for (const d of userDepts) {
+      for (const id of (d.kbIds || [])) allowedKbIds.add(id)
     }
+    const userDeptIds = new Set(userDepts.map(d => d.id))
+
+    kbList.value = allKBs.filter(kb =>
+      // 用户自己拥有的知识库
+      (kb.owner_type === 'user' && kb.owner_id === userId) ||
+      // 部门关联的知识库
+      allowedKbIds.has(kb.kb_id) ||
+      // 所有者为当前用户所在部门的知识库
+      (kb.owner_type === 'department' && userDeptIds.has(String(kb.owner_id)))
+    )
   } catch { kbList.value = [] }
 }
 
@@ -352,7 +347,7 @@ function saveAssistantConfig() {
 }
 
 // ── 会话管理 ──────────────────────────────────────────
-const SESSIONS_KEY = 'user_chat_sessions'
+const SESSIONS_KEY = `user_chat_sessions_${userInfo.user_id || userInfo.username || 'default'}`
 const sessions = ref(JSON.parse(localStorage.getItem(SESSIONS_KEY) || '[]'))
 const currentSessionId = ref(sessions.value[0]?.id || null)
 
@@ -602,14 +597,6 @@ function renderText(content) {
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/`(.+?)`/g, '<code>$1</code>')
     .replace(/\n/g, '<br>')
-}
-
-function sanitizeHtml(html) {
-  if (!html) return ''
-  return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ['table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'colgroup', 'col', 'br', 'p', 'span', 'strong', 'em', 'b', 'i'],
-    ALLOWED_ATTR: ['colspan', 'rowspan', 'style', 'class'],
-  })
 }
 
 function fmtTime(ts) {
@@ -878,7 +865,6 @@ onMounted(async () => {
   border-radius: 50%; display: flex; align-items: center; justify-content: center;
   color: white; font-weight: 600; font-size: 16px; overflow: hidden;
 }
-.user-topbar-avatar .avatar-text-default { font-size: 12px; }
 .user-topbar-img { width: 100%; height: 100%; object-fit: cover; }
 .assistant-name { font-size: 15px; font-weight: 600; color: #1b4332; }
 .assistant-kb { font-size: 12px; color: #74c69d; }
@@ -1013,29 +999,14 @@ onMounted(async () => {
 .popup-chunk-score { font-size: 10px; color: #52b788; background: rgba(168,230,207,0.3); padding: 1px 6px; border-radius: 8px; }
 .popup-chunk-page { font-size: 10px; color: #74c69d; }
 .popup-chunk-text { font-size: 12px; color: #1b4332; line-height: 1.6; word-break: break-word; }
-.popup-chunk-table :deep(table) {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 11px;
-  margin: 4px 0;
-}
-.popup-chunk-table :deep(th),
-.popup-chunk-table :deep(td) {
-  border: 1px solid rgba(168,230,207,0.5);
-  padding: 4px 6px;
-  text-align: left;
-}
-.popup-chunk-table :deep(th) {
-  background: rgba(168,230,207,0.2);
-  font-weight: 600;
-}
-.popup-chunk-image img {
-  max-width: 100%;
-  max-height: 200px;
-  border-radius: 6px;
-  margin-top: 8px;
-  border: 1px solid rgba(168,230,207,0.3);
-}
+.popup-chunk-html { font-size: 12px; color: #1b4332; line-height: 1.6; word-break: break-word; overflow-x: auto; }
+.popup-chunk-html table { border-collapse: collapse; width: 100%; font-size: 11px; margin: 4px 0; }
+.popup-chunk-html table td,
+.popup-chunk-html table th { border: 1px solid #b7e4c7; padding: 4px 8px; text-align: left; white-space: nowrap; }
+.popup-chunk-html table tr:first-child td,
+.popup-chunk-html table th { background: rgba(168,230,207,0.3); font-weight: 600; }
+.popup-chunk-img { margin-top: 6px; }
+.popup-chunk-img img { max-width: 100%; max-height: 200px; border-radius: 6px; border: 1px solid rgba(168,230,207,0.4); }
 .msg-error { font-size: 12px; color: #ef4444; margin-top: 4px; }
 .msg-time { font-size: 11px; color: #b7e4c7; margin-top: 4px; }
 
@@ -1139,7 +1110,7 @@ onMounted(async () => {
 .profile-avatar {
   width: 80px; height: 80px; border-radius: 50%;
   background: linear-gradient(135deg, #52b788, #2d6a4f);
-  color: white; font-size: 20px; font-weight: 700;
+  color: white; font-size: 28px; font-weight: 700;
   display: flex; align-items: center; justify-content: center;
 }
 
@@ -1319,16 +1290,11 @@ onMounted(async () => {
 .dark-forest .popup-chunk { background: rgba(100,180,160,0.08); border-color: rgba(100,180,160,0.15); }
 .dark-forest .popup-chunk-idx { color: #a0e8d2; }
 .dark-forest .popup-chunk-text { color: #c8f5e6; }
-.dark-forest .popup-chunk-table :deep(th),
-.dark-forest .popup-chunk-table :deep(td) {
-  border-color: rgba(100,180,160,0.3);
-}
-.dark-forest .popup-chunk-table :deep(th) {
-  background: rgba(100,180,160,0.15);
-}
-.dark-forest .popup-chunk-image img {
-  border-color: rgba(100,180,160,0.25);
-}
+.dark-forest .popup-chunk-html { color: #c8f5e6; }
+.dark-forest .popup-chunk-html table td,
+.dark-forest .popup-chunk-html table th { border-color: rgba(100,180,160,0.3); }
+.dark-forest .popup-chunk-html table tr:first-child td,
+.dark-forest .popup-chunk-html table th { background: rgba(100,180,160,0.15); }
 
 .dark-forest .input-wrap {
   background: rgba(26,47,43,0.9); border-color: rgba(100,180,160,0.25);

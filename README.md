@@ -48,7 +48,7 @@
 - **向量数据库**：ChromaDB（本地持久化）
 - **关系数据库**：MySQL
 - **文件存储**：MinIO
-- **文档解析**：MinerU（纯 CPU 模式，云服务器暂无 GPU，无加速）
+- **文档解析**：MinerU 云端 API（无需本地 GPU，通过官方 API 调用云端算力）
 - **知识图谱**：NetworkX
 
 ### 前端
@@ -84,18 +84,13 @@ cd backend/v1/file_analysis
 python -m venv venv_RAG
 source venv_RAG/bin/activate
 
-# 先安装 MinerU（必须通过 uv 安装，不能直接 pip install）
 pip install --upgrade pip
-pip install uv
-uv pip install -U "mineru[all]"
-
-# 再安装其余依赖
 pip install -r requirements.txt
 
 deactivate
 ```
 
-> 注意：MinerU 安装包较大，需要下载模型文件。云服务器暂无 GPU，MinerU 以纯 CPU 模式运行，无加速。
+> 注意：文档解析已改为调用 MinerU 云端 API，不再需要本地安装 MinerU 及下载模型文件。API Token 在 `backend/v1/.env` 中配置。
 
 ### 3. 安装 QA Service 依赖（端口 8002）
 
@@ -108,7 +103,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 deactivate
-```
+``` 
 
 ### 4. 安装前端依赖（端口 3000）
 
@@ -117,46 +112,8 @@ cd frontend
 npm install
 ```
 
-### 5. 配置环境变量
 
-编辑 `backend/v1/.env`，根据实际情况修改 MySQL 连接、API Key 等配置。
 
-### 6. 启动服务
-
-```bash
-# 使用 PM2 一键启动所有服务
-pm2 start ecosystem.config.js
-```
-
----
-
-## 本地开发启动
-
-### 1. 启动 Parser Service（端口 8001）
-
-```bash
-cd backend/v1/file_analysis
-.\venv_RAG\Scripts\activate
-python main.py
-```
-
-### 2. 启动 QA Service（端口 8002）
-
-```bash
-cd backend/v1/search_and_ask
-.\venv_RAG2\Scripts\Activate.ps1
-python main.py
-```
-
-### 3. 启动前端（端口 3000）
-
-```bash
-cd frontend
-npm install   # 首次运行需要
-npm run dev
-```
-
----
 
 ## 知识图谱配置
 
@@ -174,47 +131,108 @@ npm run dev
 ```
 
 
----
 
-## API 示例
 
-### 自动提取实体关系
 
-```bash
-POST http://localhost:8002/api/v1/search/kg/extract/sync
+PengPeng RAG 项目框架总览
+这是一个基于 RAG（检索增强生成）的智能知识库问答系统，前后端分离，微服务架构，共 3 个服务通过 PM2 统一管理。
 
-{
-  "doc_id": "doc_001",
-  "kb_id": "kb_001",
-  "content": "张三是AI工程师，在科技公司工作..."
-}
-```
+整体架构
 
-### 多跳关联查询
+pengpengRAG/
+├── backend/v1/
+│   ├── .env                          # 共享环境变量配置
+│   ├── file_analysis/  (端口 8001)    # Parser Service - 文档解析服务
+│   └── search_and_ask/ (端口 8002)    # QA Service - 检索问答服务
+├── frontend/           (端口 3000)    # Vue 3 前端
+├── scripts/                           # PM2 启动脚本
+└── ecosystem.config.js                # PM2 进程管理配置
+后端服务 1：Parser Service（8001）
+职责：文档解析、向量化存储、用户认证、知识库管理
 
-```bash
-POST http://localhost:8002/api/v1/search/kg/search/multihop
 
-{
-  "entity_name": "张三",
-  "hops": 2
-}
-```
+file_analysis/
+├── main.py                 # FastAPI 入口
+├── config/settings.py      # 配置
+├── core/document_parser.py # 文档解析核心（调用 MinerU 云端 API）
+├── routes/
+│   ├── parser_routes.py    # 文件上传/解析接口
+│   ├── auth_routes.py      # 用户认证（登录/注册）
+│   ├── admin_routes.py     # 管理员接口
+│   ├── kb_routes.py        # 知识库 CRUD
+│   └── settings_routes.py  # 系统设置
+├── services/
+│   ├── parser_service.py       # 解析业务逻辑
+│   ├── chromadb_service.py     # ChromaDB 向量存储
+│   ├── embedding_service.py    # Embedding 调用
+│   ├── minio_service.py        # MinIO 文件存储
+│   ├── mysql_service.py        # MySQL 操作
+│   └── auth_service.py         # 认证逻辑
+├── database/
+│   ├── db_manager.py       # 数据库连接管理
+│   └── schema.sql          # 建表语句
+├── chroma_db/              # ChromaDB 本地持久化数据
+└── uploads/                # 上传文件临时存储
+后端服务 2：QA Service（8002）
+职责：混合检索、重排序、流式/非流式问答、知识图谱增强
 
-### 问答（启用知识图谱）
 
-```bash
-POST http://localhost:8002/api/v1/search/ask
+search_and_ask/
+├── main.py              # FastAPI 入口
+├── config.py            # 全部配置（LLM/Embedding/Reranker/KG 等）
+├── core/
+│   ├── retriever.py     # 混合检索（BM25 + 向量 + RRF 融合）
+│   ├── kg_retriever.py  # 知识图谱检索
+│   ├── qa.py            # 问答核心逻辑
+│   └── answer_modes.py  # 回答模式（普通/撰写等）
+├── routes/
+│   ├── search_routes.py # 检索接口
+│   ├── qa_routes.py     # 问答接口（流式/非流式）
+│   ├── kg_routes.py     # 知识图谱接口（实体抽取/多跳查询）
+│   ├── auth_routes.py   # 认证转发
+│   └── system_routes.py # 系统状态
+├── services/
+│   ├── embedding_service.py           # Embedding
+│   ├── chromadb_service.py            # 向量检索
+│   ├── conversation_service.py        # 对话历史管理
+│   ├── entity_relation_extractor.py   # LLM 实体关系抽取
+│   └── knowledge_graph_service.py     # 知识图谱存储（NetworkX）
+└── kg_data/             # 知识图谱持久化数据
+前端（Vue 3 + Vite）
 
-{
-  "query": "张三在哪家公司工作？",
-  "knowledge_base_id": "kb_001",
-  "use_kg": true,
-  "kg_weight": 0.3
-}
-```
+frontend/src/
+├── App.vue / main.js
+├── router/index.js      # 路由（管理员端 + 用户端）
+├── api/                 # Axios 请求封装（admin/knowledge/parser/qa/user）
+├── stores/              # Pinia 状态管理
+├── pages/
+│   ├── Login.vue / UserLogin.vue    # 双登录入口
+│   ├── UserChat.vue                 # 用户问答界面
+│   ├── QA.vue                       # 管理员问答
+│   ├── Upload.vue                   # 文件上传
+│   ├── Knowledge.vue                # 知识库管理
+│   ├── UserManagement.vue           # 用户管理
+│   ├── AdminDashboard.vue           # 管理后台
+│   └── Settings.vue                 # 系统设置
+└── components/          # 公共组件（Layout/Sidebar/Toast 等）
+核心技术栈
+层	技术
+LLM	Qwen3-235B-A22B（Gitee AI 平台）
+Embedding	Qwen3-Embedding-8B（1024 维）
+Reranker	BGE-reranker-v2-m3
+向量数据库	ChromaDB（本地持久化）
+关系数据库	MySQL
+文件存储	MinIO
+文档解析	MinerU 云端 API
+知识图谱	NetworkX（本地 JSON 持久化）
+后端框架	FastAPI + Uvicorn
+前端框架	Vue 3 + Vite + Pinia + Vue Router
+进程管理	PM2
+数据流简述
+用户上传文档 → Parser Service 调用 MinerU API 解析 → 分块 → Embedding → 存入 ChromaDB + 元数据存 MySQL
+用户提问 → QA Service 做混合检索（BM25 + 向量 + 可选知识图谱） → Reranker 重排 → LLM 生成回答（支持流式 SSE）
+知识图谱：LLM 自动抽取实体关系 → NetworkX 存储 → 支持多跳推理查询，与向量检索结果融合
 
----
 
 ## PM2 启动（推荐）
 
@@ -225,7 +243,8 @@ POST http://localhost:8002/api/v1/search/ask
 ### 启动所有服务
 
 ```bash
-pm2 start ecosystem.config.js
+pm2 start /home/wsp/pengpengRAG/ecosystem.config.js
+
 ```
 
 ### 常用 PM2 命令
@@ -246,10 +265,5 @@ pm2 save                    # 保存当前进程列表（用于开机自启）
 pm2 startup                 # 生成开机自启命令（按提示执行输出的命令）
 ```
 
-访问地址：
-- 管理员：http://localhost:3000/login
-- 用户：http://localhost:3000/user/login
-
-其他人访问地址
-http://192.168.110.69:3000/login
-http://192.168.110.69:3000/user/login
+管理员登录：https://rag.zhou1028.cn/login
+用户登录：https://rag.zhou1028.cn/user/login

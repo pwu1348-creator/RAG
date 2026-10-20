@@ -60,15 +60,15 @@ class AuthService:
 
         if not admin:
             self.db.create_login_log('admin', '', login_ip, user_agent, 'failed', 'User not found')
-            return {'success': False, 'message': 'Invalid username or password'}
+            return {'success': False, 'message': '账号或密码错误'}
 
         if admin['status'] != 'active':
             self.db.create_login_log('admin', admin['admin_id'], login_ip, user_agent, 'failed', 'Account locked')
-            return {'success': False, 'message': 'Account is locked or inactive'}
+            return {'success': False, 'message': '账号已被锁定或停用'}
 
         if not self.db.verify_password(password, admin['password_hash']):
             self.db.create_login_log('admin', admin['admin_id'], login_ip, user_agent, 'failed', 'Wrong password')
-            return {'success': False, 'message': 'Invalid username or password'}
+            return {'success': False, 'message': '账号或密码错误'}
 
         token_payload = {
             'type': 'admin',
@@ -102,15 +102,15 @@ class AuthService:
         
         if not user:
             self.db.create_login_log('user', '', login_ip, user_agent, 'failed', 'User not found')
-            return {'success': False, 'message': 'Invalid username or password'}
+            return {'success': False, 'message': '账号或密码错误'}
         
         if user.get('status') != 'active':
             self.db.create_login_log('user', user.get('user_id'), login_ip, user_agent, 'failed', 'Account locked')
-            return {'success': False, 'message': 'Account is locked or inactive'}
+            return {'success': False, 'message': '账号已被锁定或停用'}
         
         if not self.db.verify_password(password, user.get('password_hash', '')):
             self.db.create_login_log('user', user.get('user_id'), login_ip, user_agent, 'failed', 'Wrong password')
-            return {'success': False, 'message': 'Invalid username or password'}
+            return {'success': False, 'message': '账号或密码错误'}
         
         token_payload = {
             'type': 'user',

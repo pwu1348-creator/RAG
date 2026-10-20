@@ -25,7 +25,7 @@
 
       <!-- 右侧：登录表单 -->
       <div class="form-side">
-        <div class="form-inner">
+        <div class="form-inner" :class="{ 'shake': shaking }">
           <div class="brand">
             <div class="brand-icon">
               <img src="/images/生成马年专属 logo.png" alt="PengMind Logo" class="brand-logo-img" />
@@ -36,14 +36,6 @@
           <h2 class="form-title">用户登录</h2>
           <p class="form-sub">欢迎回来，请输入您的账号信息</p>
 
-          <transition name="error-fade">
-            <div v-if="errorMsg" class="error-tip">
-              <svg class="error-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                <path d="M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/>
-              </svg>
-              <span>{{ errorMsg }}</span>
-            </div>
-          </transition>
 
           <form @submit.prevent="handleLogin">
             <!-- 账号 -->
@@ -122,15 +114,17 @@ import { useRouter } from 'vue-router'
 import FallingLeaves from '../components/FallingLeaves.vue'
 import MudMan from '../components/MudMan.vue'
 import { hashPassword } from '../utils/crypto'
+import { useToast } from '../utils/toast'
 
 const router = useRouter()
+const { showToast } = useToast()
 
 const username = ref('')
 const password = ref('')
 const showPwd = ref(false)
 const rememberMe = ref(false)
 const loading = ref(false)
-const errorMsg = ref('')
+const shaking = ref(false)
 const usernameFocused = ref(false)
 const passwordFocused = ref(false)
 const usernameRef = ref(null)
@@ -174,22 +168,17 @@ function onPasswordBlur() {
   isTypingPassword.value = false
 }
 
-let errorTimer = null
-
-function showError(msg) {
-  errorMsg.value = msg
-  if (errorTimer) clearTimeout(errorTimer)
-  errorTimer = setTimeout(() => {
-    errorMsg.value = ''
-  }, 3000)
+function triggerShake() {
+  shaking.value = true
+  setTimeout(() => { shaking.value = false }, 600)
 }
 
 async function handleLogin() {
   if (!username.value || !password.value) {
-    showError('请输入账号和密码')
+    triggerShake()
+    showToast('请输入账号和密码', 'warning')
     return
   }
-  errorMsg.value = ''
   loading.value = true
 
   try {
@@ -207,17 +196,15 @@ async function handleLogin() {
       if (rememberMe.value) {
         localStorage.setItem('user_remember', username.value)
       }
+      showToast('登录成功', 'success')
       router.push('/user/chat')
     } else {
-      showError('账号或密码错误')
+      triggerShake()
+      showToast(data.data?.message || data.message || '账号或密码错误', 'error')
     }
   } catch (e) {
-    const msg = e.response?.data?.message
-    if (msg && (msg.toLowerCase().includes('invalid') || msg.toLowerCase().includes('password') || msg.toLowerCase().includes('username'))) {
-      showError('账号或密码错误')
-    } else {
-      showError('网络错误，请稍后重试')
-    }
+    triggerShake()
+    showToast(e.response?.data?.message || '网络错误，请稍后重试', 'error')
   } finally {
     loading.value = false
   }
@@ -394,6 +381,16 @@ onUnmounted(() => {
   z-index: 2;
 }
 
+.form-inner.shake {
+  animation: shakeForm 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes shakeForm {
+  0%, 100% { transform: translateX(0); }
+  10%, 50%, 90% { transform: translateX(-6px); }
+  30%, 70% { transform: translateX(6px); }
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -438,34 +435,13 @@ onUnmounted(() => {
 }
 
 .error-tip {
-  padding: 12px 16px;
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.08) 100%);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-left: 4px solid #f87171;
+  padding: 10px 14px;
+  background: rgba(239,68,68,0.12);
+  border: 1px solid rgba(239,68,68,0.35);
   border-radius: 10px;
   color: #fca5a5;
   font-size: 13px;
   margin-bottom: 18px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.1);
-  animation: errorShake 0.4s ease;
-}
-
-.error-icon {
-  flex-shrink: 0;
-  color: #f87171;
-  width: 18px;
-  height: 18px;
-}
-
-@keyframes errorShake {
-  0%, 100% { transform: translateX(0); }
-  20% { transform: translateX(-4px); }
-  40% { transform: translateX(4px); }
-  60% { transform: translateX(-2px); }
-  80% { transform: translateX(2px); }
 }
 
 .field {
@@ -602,25 +578,6 @@ onUnmounted(() => {
   margin-top: 32px;
   font-size: 11px;
   color: rgba(120, 180, 150, 0.4);
-}
-
-/* 错误消息淡出动画 */
-.error-fade-enter-active {
-  transition: all 0.3s ease-out;
-}
-
-.error-fade-leave-active {
-  transition: all 0.5s ease-in;
-}
-
-.error-fade-enter-from {
-  opacity: 0;
-  transform: translateY(-10px);
-}
-
-.error-fade-leave-to {
-  opacity: 0;
-  transform: translateY(-15px);
 }
 
 /* 移动端：隐藏左侧 */

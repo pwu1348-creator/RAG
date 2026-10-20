@@ -1,7 +1,5 @@
 from typing import List, Optional, Dict, Any
 import requests
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 
 from config import config
@@ -62,80 +60,51 @@ class EmbeddingService:
         if not texts:
             return []
 
-        valid_indices = [i for i, t in enumerate(texts) if t and t.strip()]
-        valid_texts = [texts[i] for i in valid_indices]
-
-        if not valid_texts:
-            return [[0.0] * config.embedding.DIMENSIONS for _ in texts]
-
         dimensions = config.embedding.DIMENSIONS
         is_ollama = self.check_ollama_compatible()
-        batch_size = config.embedding.BATCH_SIZE
 
         try:
             if is_ollama:
-                valid_embeddings = self._encode_ollama(valid_texts)
-            elif len(valid_texts) <= batch_size:
-                valid_embeddings = self._encode_openai(valid_texts, dimensions)
+                return self._encode_ollama(texts)
             else:
-                valid_embeddings = self._encode_openai_batched(valid_texts, dimensions, batch_size)
+                return self._encode_openai(texts, dimensions)
 
         except Exception as e:
             logger.error(f"Embedding encode failed: {e}")
             raise
 
-        zero_vec = [0.0] * (len(valid_embeddings[0]) if valid_embeddings else dimensions)
-        result = [zero_vec[:] for _ in texts]
-        for idx, emb in zip(valid_indices, valid_embeddings):
-            result[idx] = emb
-        return result
-
     def _encode_openai(self, texts: List[str], dimensions: int) -> List[List[float]]:
-        return self._encode_openai_batched(texts, dimensions, config.embedding.BATCH_SIZE)
+        all_embeddings: List[List[float]] = []
 
-    def _encode_openai_batched(self, texts: List[str], dimensions: int, batch_size: int) -> List[List[float]]:
-        total = len(texts)
-        logger.info(f"[EmbeddingService] 并发处理: {total} 条文本, 维度: {dimensions}")
+        # 过滤空字符串，API 不接受空 input
+        cleaned_texts = [t if t.strip() else " " for t in texts]
 
-        all_embeddings: List[Optional[List[float]]] = [None] * total
-        max_workers = min(8, total)
-        max_retries = config.embedding.MAX_RETRIES
+        # Gitee AI embedding API input 仅支持单个字符串，逐条调用
+        for idx, text in enumerate(cleaned_texts):
+            try:
+                response = EmbeddingService._client.embeddings.create(
+                    input=text,
+                    model=config.embedding.MODEL,
+                    dimensions=dimensions
+                )
+                all_embeddings.append(response.data[0].embedding)
+            except Exception as e:
+                logger.error(
+                    f"[EmbeddingService] 第 {idx} 条文本 embedding 失败: {e}, "
+                    f"文本前50字: {text[:50]}"
+                )
+                raise
 
-        def process_single(idx: int, text: str) -> tuple:
-            for attempt in range(max_retries):
-                try:
-                    response = EmbeddingService._client.embeddings.create(
-                        input=text,
-                        model=config.embedding.MODEL,
-                        dimensions=dimensions
-                    )
-                    return idx, response.data[0].embedding
-                except Exception as e:
-                    if attempt < max_retries - 1:
-                        wait = 2 ** attempt
-                        logger.warning(f"[EmbeddingService] 文本 {idx} 第 {attempt+1} 次失败，{wait}s 后重试: {e}")
-                        time.sleep(wait)
-                    else:
-                        logger.error(f"[EmbeddingService] 文本 {idx} 重试 {max_retries} 次后仍失败: {e}")
-                        raise
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(process_single, idx, text): idx
-                for idx, text in enumerate(texts)
-            }
-            for future in as_completed(futures):
-                idx, embedding = future.result()
-                all_embeddings[idx] = embedding
-
-        embeddings = [e for e in all_embeddings if e is not None]
-        logger.info(f"[EmbeddingService] 完成: 共生成 {len(embeddings)} 个向量，维度: {dimensions}")
-        return embeddings
+        logger.info(
+            f"[EmbeddingService] OpenAI接口生成 {len(all_embeddings)} 个向量，"
+            f"维度: {dimensions}"
+        )
+        return all_embeddings
 
     def _encode_ollama(self, texts: List[str]) -> List[List[float]]:
         embeddings = []
         base_url = config.embedding.BASE_URL.rstrip('/')
-
+        
         for text in texts:
             try:
                 response = requests.post(
@@ -153,11 +122,11 @@ class EmbeddingService:
             except Exception as e:
                 logger.error(f"[EmbeddingService] Ollama encode failed for text: {e}")
                 embeddings.append([])
-
+        
         if embeddings and embeddings[0]:
             dim = len(embeddings[0])
             logger.info(f"[EmbeddingService] Ollama接口生成 {len(embeddings)} 个向量，维度: {dim}")
-
+        
         return embeddings
 
     def encode_single(self, text: str) -> List[float]:
